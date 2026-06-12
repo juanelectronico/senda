@@ -1,50 +1,78 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const { MessagingResponse } = require('twilio').twiml;
+// 1. Importamos las librerías correctas (Sin Express ni Twilio)
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-const app = express();
-app.use(bodyParser.urlencoded({ extended: false }));
+// 2. Inicializamos Gemini con la clave de tu .env
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Simulación de "Base de Datos" temporal para probar hoy rápido
-const NUMERO_DUEÑO_COMERCIO = 'whatsapp:+5215670500038'; // Pon aquí tu número para las pruebas
+// 3. Configuración de WhatsApp con guardado de sesión local
+const client = new Client({
+    authStrategy: new LocalAuth()
+});
 
-app.post('/webhook', async (req, res) => {
-    const twiml = new MessagingResponse();
-    
-    // 1. Capturar los datos que nos manda Twilio
-    const mensajeRecibido = req.body.Body.trim();
-    const numeroQuienEscribe = req.body.From; // De quién viene (Cliente o Dueño)
-    const numeroDondeLlego = req.body.To;    // A qué WhatsApp de negocio llegó
+// Simulación de "Base de Datos" para tus pruebas
+const NUMERO_DUEÑO_COMERCIO = '5215670500038@c.us'; // Formato de ID de WhatsApp para el dueño
+
+// Mostrar el código QR en la consola para escanear
+client.on('qr', (qr) => {
+    qrcode.generate(qr, { small: true });
+    console.log('📸 Escanea el código QR de arriba con tu WhatsApp para conectar Senda.');
+});
+
+client.on('ready', () => {
+    console.log('🚀 ¡Senda Bot está conectado y listo en WhatsApp!');
+});
+
+// 4. LÓGICA PRINCIPAL: Cuando llega un mensaje
+client.on('message', async (msg) => {
+    const mensajeRecibido = msg.body.trim();
+    const numeroQuienEscribe = msg.from; // ID de WhatsApp de quien envía
 
     console.log(`\n📱 Mensaje de ${numeroQuienEscribe}: "${mensajeRecibido}"`);
 
-    // 2. LÓGICA DE DETECCIÓN: ¿Quién está hablando?
+    // ¿Quién está hablando?
     if (numeroQuienEscribe === NUMERO_DUEÑO_COMERCIO) {
         
         // --- FLUJO DEL COMERCIO (DUEÑO) ---
         if (mensajeRecibido === '1') {
-            twiml.message('✅ ¡Perfecto! Factura aprobada y timbrada con éxito. Enviando archivos al cliente...');
+            await msg.reply('✅ ¡Perfecto! Factura aprobada y timbrada con éxito. Enviando archivos al cliente...');
             console.log('📢 El comercio aprobó la factura.');
         } else if (mensajeRecibido === '2') {
-            twiml.message('❌ Factura rechazada y cancelada.');
+            await msg.reply('❌ Factura rechazada y cancelada.');
             console.log('📢 El comercio rechazó la factura.');
         } else {
-            twiml.message('Senda Admin 🤖: Responde "1" para aprobar la factura pendiente o "2" para rechazarla.');
+            await msg.reply('Senda Admin 🤖: Responde "1" para aprobar la factura pendiente o "2" para rechazarla.');
         }
 
     } else {
         
-        // --- FLUJO DEL CLIENTE FINAL ---
-        twiml.message(`¡Hola! Recibimos tu solicitud para facturar en este comercio. 🧾\n\nPor favor, responde a este mensaje únicamente con tu **RFC** para comenzar.`);
+        // --- FLUJO DEL CLIENTE FINAL CON GEMINI ---
+        console.log(`📢 Analizando mensaje del cliente con Gemini...`);
         
-        // Aquí mandaríamos la alerta al dueño en automático (lo programaremos enseguida)
-        console.log(`📢 Cliente solicitando factura. Avisando al dueño...`);
+        try {
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            
+            // Contexto para que Gemini sepa qué responder en WhatsApp
+            const promptAsistente = `Eres Senda Bot, un asistente virtual de facturación automática para un comercio. 
+            El cliente te acaba de escribir: "${mensajeRecibido}". 
+            Si te está saludando o haciendo una pregunta general, respóndele de forma amable, muy corta (máximo 2 párrafos) y recuérdale que para comenzar a facturar necesita proporcionar su RFC.`;
+
+            const result = await model.generateContent(promptAsistente);
+            const respuestaIA = result.response.text();
+
+            // Responder directamente al cliente en WhatsApp
+            await msg.reply(respuestaIA);
+
+        } catch (error) {
+            console.error("❌ Error con Gemini:", error);
+            // Mensaje de respaldo si falla la API
+            await msg.reply(`¡Hola! Recibimos tu solicitud para facturar. 🧾\n\nPor favor, responde a este mensaje únicamente con tu **RFC** para comenzar.`);
+        }
+        
+        console.log(`📢 Cliente atendido por la IA.`);
     }
-
-    res.writeHead(200, { 'Content-Type': 'text/xml' });
-    res.end(twiml.toString());
 });
 
-app.listen(3000, () => {
-    console.log('🚀 Servidor de Senda escuchando en el puerto 3000');
-});
+// Arrancar el cliente de WhatsApp
+client.initialize();

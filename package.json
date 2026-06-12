@@ -1,11 +1,11 @@
 {
   "name": "senda",
   "version": "1.0.0",
-  "description": "",
+  "description": "Plataforma Senda MVP",
   "main": "index.js",
   "scripts": {
     "dev": "ts-node src/index.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npx ts-node --transpile-only src/test-ai.ts"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +13,8 @@
   "type": "commonjs",
   "dependencies": {
     "@azure/cognitiveservices-computervision": "^8.2.0",
+    "@google-cloud/vertexai": "^1.12.0",
+    "@google/genai": "^2.8.0",
     "@hapi/boom": "^10.0.1",
     "@prisma/client": "^5.22.0",
     "@supabase/supabase-js": "^2.106.1",
@@ -22,6 +24,7 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "facturapi": "^4.17.0",
+    "google-auth-library": "^10.7.0",
     "pg": "^8.20.0",
     "pino": "^10.3.1",
     "prisma": "^5.22.0",
@@ -33,7 +36,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
-    "@types/node": "^25.8.0",
+    "@types/node": "^25.9.2",
     "@types/qrcode": "^1.5.6",
     "@types/qrcode-terminal": "^0.12.2",
     "ts-node": "^10.9.2",
