@@ -1,11 +1,78 @@
-node_modules
-# Keep environment variables out of version control
-.env
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
 
-/src/generated/prisma
+# Environment variables
 .env
+.env.local
+.env.production
+
+# WhatsApp authentication folders
 baileys_auth/
+auth_info_baileys/
+auth_info_baileys_tienda_juan/
+whatsapp_auth/
+auth_info_*
+
+# QR codes and temp files
 whatsapp_qr.txt
 whatsapp-qr.png
-auth_info_baileys/
+qr-code.png
+*.qr.png
+
+# Logs
+logs/
 *.log
+pm2-*.log
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Secrets and keys
+*.pem
+*.key
+*.crt
+*.csr
+
+# Database
+*.sqlite
+*.db
+prisma/*.db
+
+# Test files
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# Uploads
+uploads/
+files/
