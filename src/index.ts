@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import { supabase } from './config/supabase';
 import facturaRouter from './routes/factura.routes';
+import commerceRoutes from './routes/commerce.routes';
 
 // Usar require en lugar de import (funcionó en la prueba)
 const { GoogleGenAI } = require('@google/genai');
@@ -9,8 +10,11 @@ const { GoogleGenAI } = require('@google/genai');
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(express.static('public'));
 
+// Rutas
 app.use('/factura', facturaRouter);
+app.use('/api/commerce', commerceRoutes);
 
 const apiKey = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6K6pX_WHhQkc9NZEG-GH4Ytprw13x9kXX0tFtYCt2N0wQ';
 const ai = new GoogleGenAI({ apiKey: apiKey });

@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Senda · Facturación por WhatsApp</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        /* ===== RESET ===== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #FFFFFF;
+            color: #1F2937;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ===== COLORES OFICIALES SENDA ===== */
+        :root {
+            --turquoise: #19C0D4;
+            --green: #5AB740;
+            --gradient: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
+            --gray-900: #1F2937;
+            --gray-500: #6B7280;
+            --gray-200: #E5E7EB;
+            --gray-50: #F6F7F7;
+            --white: #FFFFFF;
+            --radius: 16px;
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+            --transition: all 0.25s ease;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* ===== HEADER ===== */
+        .header {
+            padding: 20px 0;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--gray-200);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            display: flex;
+            align-items: center;
+            text-decoration: none;
+        }
+        .logo img {
+            height: 56px;
+            width: auto;
+            display: block;
+        }
+        .nav {
+            display: flex;
+            align-items: center;
+            gap: 32px;
+        }
+        .nav a {
+            color: var(--gray-500);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 15px;
+            transition: var(--transition);
+        }
+        .nav a:hover {
+            color: var(--turquoise);
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1.5px solid var(--turquoise);
+            color: var(--turquoise);
+            padding: 10px 24px;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .btn-outline:hover {
+            background: var(--turquoise);
+            color: white;
+        }
+
+        /* ===== MOBILE MENU ===== */
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            font-size: 28px;
+            cursor: pointer;
+            color: var(--gray-900);
+        }
+        .nav-mobile {
+            display: none;
+            flex-direction: column;
+            gap: 16px;
+            padding: 20px 0;
+            border-top: 1px solid var(--gray-200);
+            margin-top: 16px;
+        }
+        .nav-mobile.open {
+            display: flex;
+        }
+        .nav-mobile a {
+            color: var(--gray-500);
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 16px;
+        }
+        .nav-mobile a:hover {
+            color: var(--turquoise);
+        }
+
+        /* ===== HERO FULL-SCREEN CON PARALLAX ===== */
+        .hero {
+            position: relative;
+            height: 100vh;
+            min-height: 600px;
+            display: flex;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* Imagen de fondo con parallax */
+        .hero-bg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 120%;
+            background-image: url('/HERO.jpeg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            transform: translateY(0);
+            z-index: 0;
+        }
+
+        /* Contenido del hero (texto a la izquierda) */
+        .hero-content {
+            position: relative;
+            z-index: 1;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            padding: 40px 0;
+        }
+
+        .hero-badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.9);
+            color: var(--turquoise);
+            padding: 6px 16px;
+            border-radius: 100px;
+            font-size: 13px;
+            font-weight: 600;
+            width: fit-content;
+            backdrop-filter: blur(4px);
+        }
+
+        .hero-content h1 {
+            font-size: 56px;
+            font-weight: 900;
+            letter-spacing: -2px;
+            line-height: 1.1;
+            color: #ffffff;
+            text-shadow: 0 2px 20px rgba(0, 0, 0, 0.2);
+        }
+
+        .hero-content h1 .highlight {
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            text-shadow: none;
+        }
+
+        .hero-subtitle {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.9);
+            max-width: 480px;
+            line-height: 1.6;
+            text-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .hero-features {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .hero-features span {
+            font-size: 16px;
+            color: rgba(255, 255, 255, 0.95);
+            font-weight: 500;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+        }
+
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+
+        .btn-primary {
+            background: var(--gradient);
+            color: white;
+            border: none;
+            padding: 16px 40px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            box-shadow: 0 4px 16px rgba(25, 192, 212, 0.25);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(25, 192, 212, 0.35);
+        }
+
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(8px);
+            border: 1.5px solid rgba(255, 255, 255, 0.3);
+            color: #FFFFFF;
+            padding: 16px 40px;
+            border-radius: 40px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* ===== FEATURES ===== */
+        .features {
+            padding: 80px 0;
+            background: var(--white);
+        }
+        .features-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        .features-header h2 {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 16px;
+        }
+        .features-header p {
+            color: var(--gray-500);
+            font-size: 18px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        .feature-card {
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: var(--radius);
+            padding: 32px;
+            transition: var(--transition);
+        }
+        .feature-card:hover {
+            transform: translateY(-4px);
+            box-shadow: var(--shadow);
+            border-color: var(--turquoise);
+        }
+        .feature-icon {
+            font-size: 32px;
+            margin-bottom: 16px;
+        }
+        .feature-card h3 {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .feature-card p {
+            color: var(--gray-500);
+            font-size: 15px;
+        }
+
+        /* ===== HOW IT WORKS ===== */
+        .how-it-works {
+            background: var(--gray-50);
+            padding: 80px 0;
+            border-radius: 32px;
+            margin: 40px 0;
+        }
+        .how-it-works h2 {
+            text-align: center;
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 16px;
+        }
+        .how-it-works > p {
+            text-align: center;
+            color: var(--gray-500);
+            font-size: 18px;
+            margin-bottom: 48px;
+        }
+        .steps {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+        .step {
+            text-align: center;
+        }
+        .step-number {
+            width: 56px;
+            height: 56px;
+            background: var(--gradient);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 800;
+            margin: 0 auto 16px;
+        }
+        .step h3 {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .step p {
+            color: var(--gray-500);
+            font-size: 15px;
+        }
+
+        /* ===== TESTIMONIALS ===== */
+        .testimonials {
+            padding: 80px 0;
+            background: var(--gray-50);
+            border-radius: 32px;
+            margin: 40px 0;
+        }
+        .testimonials h2 {
+            text-align: center;
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 48px;
+        }
+        .testimonials-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 24px;
+        }
+        .testimonial-card {
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: var(--radius);
+            padding: 32px;
+        }
+        .testimonial-card p {
+            font-size: 16px;
+            margin-bottom: 16px;
+            color: var(--gray-900);
+        }
+        .testimonial-author {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .testimonial-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--gradient);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: 700;
+            font-size: 16px;
+        }
+        .testimonial-author h4 {
+            font-size: 15px;
+            font-weight: 600;
+        }
+        .testimonial-author span {
+            color: var(--gray-500);
+            font-size: 13px;
+        }
+
+        /* ===== FORM ===== */
+        .form-section {
+            padding: 80px 0;
+        }
+        .form-card {
+            max-width: 600px;
+            margin: 0 auto;
+            background: var(--white);
+            border: 1px solid var(--gray-200);
+            border-radius: var(--radius);
+            padding: 48px;
+            box-shadow: var(--shadow);
+        }
+        .form-card h2 {
+            font-size: 28px;
+            font-weight: 800;
+            margin-bottom: 8px;
+        }
+        .form-card > p {
+            color: var(--gray-500);
+            margin-bottom: 32px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            font-weight: 500;
+            font-size: 14px;
+            margin-bottom: 6px;
+            display: block;
+            color: var(--gray-900);
+        }
+        input,
+        select,
+        textarea {
+            width: 100%;
+            height: 48px;
+            padding: 0 14px;
+            border: 1.5px solid var(--gray-200);
+            border-radius: 12px;
+            font-family: 'Inter', sans-serif;
+            font-size: 15px;
+            transition: var(--transition);
+            background: var(--white);
+            color: var(--gray-900);
+        }
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--turquoise);
+            box-shadow: 0 0 0 3px rgba(25, 192, 212, 0.1);
+        }
+        textarea {
+            height: auto;
+            padding: 12px 14px;
+            resize: vertical;
+        }
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+        .btn-submit {
+            background: var(--gradient);
+            color: white;
+            width: 100%;
+            height: 52px;
+            border: none;
+            border-radius: 40px;
+            font-weight: 600;
+            font-size: 16px;
+            cursor: pointer;
+            transition: var(--transition);
+            margin-top: 8px;
+        }
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(25, 192, 212, 0.3);
+        }
+        .message {
+            margin-top: 20px;
+            padding: 16px;
+            border-radius: 12px;
+            display: none;
+            font-size: 14px;
+        }
+        .message.success {
+            background: #F0FDF4;
+            color: #166534;
+            border: 1px solid #BBF7D0;
+            display: block;
+        }
+        .message.error {
+            background: #FEF2F2;
+            color: #991B1B;
+            border: 1px solid #FECACA;
+            display: block;
+        }
+        details {
+            margin-bottom: 20px;
+        }
+        summary {
+            color: var(--turquoise);
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        details summary::-webkit-details-marker {
+            color: var(--turquoise);
+        }
+
+        /* ===== CTA FINAL ===== */
+        .cta-final {
+            padding: 80px 0;
+            text-align: center;
+        }
+        .cta-final h2 {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 16px;
+        }
+        .cta-final p {
+            color: var(--gray-500);
+            font-size: 18px;
+            margin-bottom: 32px;
+        }
+
+        /* ===== FOOTER ===== */
+        .footer {
+            text-align: center;
+            padding: 40px 0;
+            border-top: 1px solid var(--gray-200);
+            color: var(--gray-500);
+            font-size: 14px;
+        }
+
+        /* ===== ANIMACIONES ===== */
+        .fade-in {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s ease;
+        }
+        .fade-in.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 1024px) {
+            .hero-content h1 {
+                font-size: 44px;
+            }
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .testimonials-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 768px) {
+            .hero {
+                height: 100vh;
+                min-height: 500px;
+            }
+            .hero-bg {
+                background-attachment: scroll;
+            }
+            .hero-content {
+                max-width: 100%;
+                padding: 20px 0;
+            }
+            .hero-content h1 {
+                font-size: 34px;
+            }
+            .hero-subtitle {
+                font-size: 17px;
+            }
+            .hero-features span {
+                font-size: 15px;
+            }
+            .hero-buttons {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+                max-width: 280px;
+                text-align: center;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            .steps {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
+            .testimonials-grid {
+                grid-template-columns: 1fr;
+            }
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+            .form-card {
+                padding: 24px;
+            }
+            .nav {
+                display: none;
+            }
+            .mobile-menu-btn {
+                display: block;
+            }
+            .features-header h2 {
+                font-size: 30px;
+            }
+            .how-it-works h2 {
+                font-size: 30px;
+            }
+            .testimonials h2 {
+                font-size: 30px;
+            }
+            .cta-final h2 {
+                font-size: 30px;
+            }
+            .logo img {
+                height: 40px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .hero-content h1 {
+                font-size: 28px;
+            }
+            .container {
+                padding: 0 16px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ===== HEADER ===== -->
+    <header class="header">
+        <div class="container header-content">
+            <a href="/" class="logo">
+                <img src="/LOGO.png" alt="Senda">
+            </a>
+            <nav class="nav">
+                <a href="#features">Beneficios</a>
+                <a href="#how-it-works">Cómo funciona</a>
+                <a href="#testimonials">Testimonios</a>
+                <button class="btn-outline" onclick="document.getElementById('formSection').scrollIntoView({behavior:'smooth'})">Registrar negocio</button>
+            </nav>
+            <button class="mobile-menu-btn" id="menuBtn" aria-label="Menú">☰</button>
+        </div>
+        <div class="container">
+            <div class="nav-mobile" id="mobileMenu">
+                <a href="#features">Beneficios</a>
+                <a href="#how-it-works">Cómo funciona</a>
+                <a href="#testimonials">Testimonios</a>
+                <button class="btn-outline" onclick="document.getElementById('formSection').scrollIntoView({behavior:'smooth'})" style="width:100%;text-align:center;">Registrar negocio</button>
+            </div>
+        </div>
+    </header>
+
+    <!-- ===== HERO FULL-SCREEN CON PARALLAX ===== -->
+    <section class="hero">
+        <!-- Imagen de fondo con parallax -->
+        <div class="hero-bg"></div>
+
+        <!-- Contenido -->
+        <div class="container" style="position:relative; z-index:1; width:100%;">
+            <div class="hero-content">
+                <div class="hero-badge">🚀 Facturación por WhatsApp</div>
+                <h1>
+                    Facturación y<br>
+                    <span class="highlight">operación comercial</span>
+                </h1>
+                <p class="hero-subtitle">
+                    Gestiona clientes, contratos, facturas, firmas y métricas desde una sola plataforma.
+                    Todo por WhatsApp. Sin complicaciones.
+                </p>
+                <div class="hero-features">
+                    <span>✅ Sin portal de facturación</span>
+                    <span>✅ Validación con IA</span>
+                    <span>✅ Confirmación en segundos</span>
+                </div>
+                <div class="hero-buttons">
+                    <button class="btn-primary" onclick="document.getElementById('formSection').scrollIntoView({behavior:'smooth'})">
+                        Solicitar Demo
+                    </button>
+                    <button class="btn-secondary" onclick="document.getElementById('howItWorks').scrollIntoView({behavior:'smooth'})">
+                        Conocer más
+                    </button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== FEATURES ===== -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="features-header fade-in">
+                <h2>Todo lo que necesitas para operar</h2>
+                <p>Simplifica la gestión de tu negocio con herramientas diseñadas para ti</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">💬</div>
+                    <h3>Facturación por WhatsApp</h3>
+                    <p>Tus clientes piden facturas en lenguaje natural. Senda las genera automáticamente.</p>
+                </div>
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">🤖</div>
+                    <h3>Validación con IA</h3>
+                    <p>Gemini valida RFC, razón social y datos fiscales en tiempo real. Sin errores.</p>
+                </div>
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Confirmación en segundos</h3>
+                    <p>Recibes la solicitud en tu WhatsApp, confirmas o rechazas desde tu celular.</p>
+                </div>
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">📄</div>
+                    <h3>Contratos digitales</h3>
+                    <p>Genera y administra contratos fácilmente. Todo en un solo lugar.</p>
+                </div>
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">✍️</div>
+                    <h3>Firma electrónica</h3>
+                    <p>Firma documentos desde cualquier lugar. Sin papel ni complicaciones.</p>
+                </div>
+                <div class="feature-card fade-in">
+                    <div class="feature-icon">📊</div>
+                    <h3>Métricas en tiempo real</h3>
+                    <p>Conoce el estado de tu negocio con indicadores financieros al instante.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== HOW IT WORKS ===== -->
+    <section class="container how-it-works" id="howItWorks">
+        <h2 class="fade-in">Cómo funciona</h2>
+        <p class="fade-in">Tres pasos para transformar la operación de tu negocio</p>
+        <div class="steps">
+            <div class="step fade-in">
+                <div class="step-number">1</div>
+                <h3>Registra tu empresa</h3>
+                <p>Completa tus datos fiscales una sola vez. El proceso toma menos de 5 minutos.</p>
+            </div>
+            <div class="step fade-in">
+                <div class="step-number">2</div>
+                <h3>Organiza tu operación</h3>
+                <p>Tus clientes piden facturas por WhatsApp. Senda valida y te notifica al instante.</p>
+            </div>
+            <div class="step fade-in">
+                <div class="step-number">3</div>
+                <h3>Escala tu negocio</h3>
+                <p>Menos tiempo en administración, más tiempo en lo que realmente importa.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== TESTIMONIALS ===== -->
+    <section class="container testimonials" id="testimonials">
+        <h2 class="fade-in">Lo que dicen nuestros usuarios</h2>
+        <div class="testimonials-grid">
+            <div class="testimonial-card fade-in">
+                <p>"Senda transformó la forma en que facturamos. Nuestros clientes aman la simplicidad del WhatsApp."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">M</div>
+                    <div>
+                        <h4>María González</h4>
+                        <span>Directora Comercial · Tienda María</span>
+                    </div>
+                </div>
+            </div>
+            <div class="testimonial-card fade-in">
+                <p>"Antes perdía horas en facturación. Ahora todo ocurre en segundos desde mi celular."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">J</div>
+                    <div>
+                        <h4>Juan Pérez</h4>
+                        <span>CEO · Servicios Profesionales</span>
+                    </div>
+                </div>
+            </div>
+            <div class="testimonial-card fade-in">
+                <p>"La integración con IA nos ha ahorrado errores fiscales y tiempo valioso cada día."</p>
+                <div class="testimonial-author">
+                    <div class="testimonial-avatar">A</div>
+                    <div>
+                        <h4>Ana Martínez</h4>
+                        <span>Contadora · Fiscal Solutions</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== FORM ===== -->
+    <section class="container form-section" id="formSection">
+        <div class="form-card fade-in">
+            <h2>Registra tu negocio</h2>
+            <p>Completa tus datos fiscales una sola vez. Todo lo demás funciona por WhatsApp.</p>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <label>RFC *</label>
+                    <input type="text" id="rfc" required placeholder="XAXX010101000">
+                </div>
+                <div class="form-group">
+                    <label>Razón Social *</label>
+                    <input type="text" id="business_name" required placeholder="Mi Empresa S.A. de C.V.">
+                </div>
+                <div class="form-group">
+                    <label>Régimen Fiscal *</label>
+                    <select id="tax_regime" required>
+                        <option value="">Selecciona...</option>
+                        <option value="601">601 - General de Ley Personas Morales</option>
+                        <option value="612">612 - Personas Físicas con Actividades Empresariales</option>
+                        <option value="610">610 - RESICO</option>
+                        <option value="616">616 - Sin obligaciones fiscales</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Código Postal *</label>
+                        <input type="text" id="zip_code" required placeholder="12345">
+                    </div>
+                    <div class="form-group">
+                        <label>WhatsApp *</label>
+                        <input type="tel" id="phone" required placeholder="521234567890">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Correo Electrónico *</label>
+                    <input type="email" id="email" required placeholder="comercio@ejemplo.com">
+                </div>
+
+                <details>
+                    <summary>🔐 Datos de facturación electrónica (opcional)</summary>
+                    <div style="margin-top: 16px;">
+                        <div class="form-group">
+                            <label>Certificado CSD (.cer) - Base64</label>
+                            <textarea id="csd_cer_base64" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Llave Privada (.key) - Base64</label>
+                            <textarea id="csd_key_base64" rows="2"></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Contraseña</label>
+                            <input type="password" id="csd_password" placeholder="Contraseña del CSD">
+                        </div>
+                    </div>
+                </details>
+
+                <button type="submit" class="btn-submit">Registrar negocio</button>
+                <div id="message" class="message"></div>
+            </form>
+        </div>
+    </section>
+
+    <!-- ===== CTA FINAL ===== -->
+    <section class="cta-final">
+        <div class="container fade-in">
+            <h2>Empieza a operar con más claridad <br>y menos esfuerzo</h2>
+            <p>Únete a los negocios que ya confían en Senda para su facturación.</p>
+            <button class="btn-primary" onclick="document.getElementById('formSection').scrollIntoView({behavior:'smooth'})">
+                Agenda una Demo
+            </button>
+        </div>
+    </section>
+
+    <!-- ===== FOOTER ===== -->
+    <footer class="footer">
+        <div class="container">
+            Senda — La tecnología se adapta al comercio, no al revés.
+        </div>
+    </footer>
+
+    <!-- ===== SCRIPTS ===== -->
+    <script>
+        // Mobile menu
+        document.getElementById('menuBtn').addEventListener('click', function() {
+            document.getElementById('mobileMenu').classList.toggle('open');
+            this.textContent = this.textContent === '☰' ? '✕' : '☰';
+        });
+
+        // Scroll animations
+        const fadeElements = document.querySelectorAll('.fade-in');
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('visible');
+                }
+            });
+        }, { threshold: 0.1 });
+        fadeElements.forEach(el => observer.observe(el));
+
+        // Form submission
+        const form = document.getElementById('registerForm');
+        const msg = document.getElementById('message');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            msg.className = 'message';
+            msg.textContent = '⏳ Registrando...';
+            msg.style.display = 'block';
+
+            const data = {
+                rfc: document.getElementById('rfc').value,
+                business_name: document.getElementById('business_name').value,
+                tax_regime: document.getElementById('tax_regime').value,
+                zip_code: document.getElementById('zip_code').value,
+                phone: document.getElementById('phone').value,
+                email: document.getElementById('email').value,
+                csd_cer_base64: document.getElementById('csd_cer_base64').value,
+                csd_key_base64: document.getElementById('csd_key_base64').value,
+                csd_password: document.getElementById('csd_password').value
+            };
+
+            try {
+                const res = await fetch('/api/commerce/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+                if (result.success) {
+                    msg.className = 'message success';
+                    msg.innerHTML = `✅ <strong>¡Registro exitoso!</strong><br>${result.commerce.business_name} ya está listo para facturar.`;
+                    form.reset();
+                } else {
+                    msg.className = 'message error';
+                    msg.textContent = `❌ ${result.error}`;
+                }
+            } catch (error) {
+                msg.className = 'message error';
+                msg.textContent = `❌ Error de conexión: ${error.message}`;
+            }
+        });
+    </script>
+
+</body>
+</html>
