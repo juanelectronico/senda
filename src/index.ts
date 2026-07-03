@@ -78,3 +78,4 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 Senda corriendo en http://localhost:${PORT}`));
+// Forzando despliegue
