@@ -4,6 +4,8 @@
   "description": "Plataforma Senda MVP",
   "main": "index.js",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
     "test": "npx ts-node --transpile-only src/test-ai.ts"
   },
