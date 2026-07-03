@@ -1,56 +1,80 @@
 import 'dotenv/config';
 import express from 'express';
-import { supabase } from './config/supabase';
-import facturaRouter from './routes/factura.routes';
-import commerceRoutes from './routes/commerce.routes';
+import cors from 'cors';
 
-// Usar require en lugar de import (funcionó en la prueba)
-const { GoogleGenAI } = require('@google/genai');
+// @ts-ignore
+import { supabase } from './config/supabase';
+// @ts-ignore
+import { VertexAI } from '@google-cloud/vertexai';
+
+import webhookRoutes from './routes/webhook.routes';
 
 const app = express();
+app.use(cors());
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.static('public'));
 
-// Rutas
-app.use('/factura', facturaRouter);
-app.use('/api/commerce', commerceRoutes);
+// Tus rutas de webhook
+app.use('/webhook', webhookRoutes);
 
-const apiKey = process.env.GEMINI_API_KEY || 'AQ.Ab8RN6K6pX_WHhQkc9NZEG-GH4Ytprw13x9kXX0tFtYCt2N0wQ';
-const ai = new GoogleGenAI({ apiKey: apiKey });
+// Configuración de Vertex AI
+const project = process.env.GOOGLE_CLOUD_PROJECT || '';
+const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 
-console.log('✅ Google Gen AI listo');
-
-app.post('/api/customers', async (req, res) => {
-    try {
-        const { customerEmail, customerRfc, razon_social, regimen_fiscal, uso_cfdi, codigo_postal } = req.body;
-        await supabase.from('Invoice').insert([{ 
-            customerEmail, customerRfc, razon_social, regimen_fiscal, uso_cfdi, codigo_postal,
-            commerceId: 'tienda_juan', status: 'PENDING_CONFIRMATION', amount: 0
-        }]);
-        res.status(201).json({ success: true });
-    } catch (err: any) {
-        res.status(500).json({ error: err.message });
-    }
+const vertexAI = new VertexAI({
+    project: project,
+    location: location
 });
 
-app.post('/api/chat-bot', async (req, res) => {
+// Ruta completa al modelo
+const modelName = `projects/${project}/locations/${location}/publishers/google/models/gemini-1.5-flash`;
+
+const model = vertexAI.preview.getGenerativeModel({ 
+    model: modelName 
+});
+
+console.log('✅ Senda API lista (Vertex AI - Configurado)');
+
+app.post('/api/chat-bot', async (req: any, res: any) => {
     try {
         const { mensaje } = req.body;
-        console.log('📨 Mensaje:', mensaje);
+        console.log('📨 Mensaje recibido:', mensaje);
         
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: `Eres Senda Bot, asistente de facturación. El cliente dice: "${mensaje}". Responde amablemente.`,
+        let contextoBD = "No se ha encontrado información específica del comercio.";
+        const rfcMatch = mensaje.match(/[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}/i);
+        
+        if (rfcMatch) {
+            const rfcBuscado = rfcMatch[0].toUpperCase();
+            const { data } = await supabase
+                .from('Commerce')
+                .select('*')
+                .eq('rfc', rfcBuscado);
+
+            if (data && data.length > 0) {
+                const c = data[0];
+                contextoBD = `DATOS DEL COMERCIO: Nombre: ${c.name}, RFC: ${c.rfc}, Tel: ${c.ownerPhone}`;
+            }
+        }
+
+        const prompt = `Eres Senda Bot, asistente administrativo experto. 
+        INFORMACIÓN ENCONTRADA EN BASE DE DATOS: ${contextoBD}
+        MENSAJE DEL CLIENTE: "${mensaje}"
+        Responde de forma profesional y utiliza la información del comercio si está disponible.`;
+
+        // Generación de contenido
+        const response = await model.generateContent({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }]
         });
+
+        // Acceso seguro a la respuesta
+        const respuesta = response.response.candidates?.[0].content.parts?.[0].text || "No pude generar una respuesta.";
         
-        console.log('✅ Respuesta recibida');
-        res.json({ respuesta: response.text });
+        res.json({ respuesta });
         
     } catch (err: any) {
-        console.error('❌ Error:', err.message);
-        res.status(500).json({ error: err.message });
+        console.error('❌ Error en Senda Bot:', err.message);
+        res.status(500).json({ error: 'Error en la conexión con la IA: ' + err.message });
     }
 });
 
-app.listen(3000, () => console.log('🚀 Senda en http://localhost:3000'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`🚀 Senda corriendo en http://localhost:${PORT}`));

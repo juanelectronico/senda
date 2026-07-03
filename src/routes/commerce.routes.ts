@@ -26,7 +26,7 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    // Guardar en Supabase (sin api_key)
+    // Guardar en Supabase incluyendo la lógica de control de facturas
     const { data, error } = await supabase
       .from('commerce')
       .insert({
@@ -39,7 +39,10 @@ router.post('/register', async (req: Request, res: Response) => {
         csd_cer_base64: csd_cer_base64 || '',
         csd_key_base64: csd_key_base64 || '',
         csd_password: csd_password || '',
-        is_active: true
+        is_active: true,
+        // Campos de control para las 5 facturas
+        is_premium: false,    // Siempre inicia en false (gratuito)
+        invoice_count: 0      // Siempre inicia en 0
       })
       .select()
       .single();
@@ -52,7 +55,7 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    // Éxito - mensaje simple sin API Key
+    // Éxito
     res.json({
       success: true,
       message: '✅ ¡Registro exitoso! Ya puedes comenzar a facturar con Senda desde WhatsApp.',
