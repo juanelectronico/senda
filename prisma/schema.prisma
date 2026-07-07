@@ -8,28 +8,65 @@ datasource db {
 }
 
 model Commerce {
-  id         String    @id @default(uuid())
-  name       String
-  ownerPhone String    @unique
-  rfc        String
-  createdAt  DateTime  @default(now())
-  invoices   Invoice[]
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rfc            String    @unique @db.VarChar(13)
+  business_name  String    @db.VarChar(255)
+  tax_regime     String    @db.VarChar(100)
+  zip_code       String    @db.VarChar(5)
+  phone          String    @unique @db.VarChar(15)
+  email          String    @db.VarChar(255)
+  csd_cer_base64 String?
+  csd_key_base64 String?
+  csd_password   String?   @db.VarChar(100)
+  is_active      Boolean?  @default(true)
+  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+
+  customers      Customer[]
+  invoices       Invoice[]
+
+  @@map("commerce")
+}
+
+model Customer {
+  id          String   @id @default(uuid())
+  rfc         String   @unique
+  razonSocial String
+  email       String
+  commerceId  String   @db.Uuid
+  commerce    Commerce @relation(fields: [commerceId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@map("customer")
 }
 
 model Invoice {
-  id             String        @id @default(uuid())
+  id             String        @id
   amount         Float
   customerRfc    String
   customerEmail  String
   status         InvoiceStatus @default(PENDING_CONFIRMATION)
   facturapiId    String?
   createdAt      DateTime      @default(now())
-  commerceId     String
+  commerceId     String        @db.Uuid
+  commerce       Commerce      @relation(fields: [commerceId], references: [id])
   razon_social   String?
   regimen_fiscal String?
   uso_cfdi       String?
   codigo_postal  String?
-  commerce       Commerce      @relation(fields: [commerceId], references: [id])
+
+  @@map("invoice")
+}
+
+model ChatSession {
+  id                 Int       @id @default(autoincrement())
+  phone_number       String    @unique @db.VarChar(20)
+  estado             String?   @default("INICIO") @db.VarChar(50)
+  datos_parciales    Json?
+  pending_invoice_id Int?
+  created_at         DateTime? @default(now()) @db.Timestamp(6)
+  updated_at         DateTime? @default(now()) @db.Timestamp(6)
+
+  @@map("chatsession")
 }
 
 enum InvoiceStatus {
