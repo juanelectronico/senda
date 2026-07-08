@@ -6,7 +6,8 @@ const router = Router();
 // Ruta GET: Formulario de Facturación
 router.get('/:commerceId', (req: Request, res: Response) => {
     const { commerceId } = req.params;
-    res.send(`
+    // Agregamos return
+    return res.send(`
         <!DOCTYPE html>
         <html lang="es">
         <head><meta charset="UTF-8"><title>Facturación Senda</title></head>
@@ -32,7 +33,6 @@ router.post('/:commerceId', async (req: Request, res: Response) => {
     const { rfc, razonSocial, regimenFiscal, usoCfdi, codigoPostal, email } = req.body;
     
     try {
-        // 1. Consultar estado del comercio en la tabla 'commerce'
         const { data: commerce, error: commerceError } = await supabase
             .from('commerce')
             .select('is_premium, invoice_count')
@@ -41,7 +41,7 @@ router.post('/:commerceId', async (req: Request, res: Response) => {
 
         if (commerceError || !commerce) throw new Error('Comercio no encontrado');
 
-        // 2. GATEKEEPER: Validar límite de 5 facturas
+        // 2. GATEKEEPER
         if (commerce.is_premium === false && commerce.invoice_count >= 5) {
             return res.status(403).send(`
                 <h2>🚫 Límite alcanzado</h2>
@@ -50,7 +50,7 @@ router.post('/:commerceId', async (req: Request, res: Response) => {
             `);
         }
 
-        // 3. Insertar factura en la tabla 'Invoice'
+        // 3. Insertar factura
         const { error: insertError } = await supabase.from('Invoice').insert([{
             customerRfc: rfc,
             customerEmail: email,
@@ -64,18 +64,20 @@ router.post('/:commerceId', async (req: Request, res: Response) => {
 
         if (insertError) throw insertError;
 
-        // 4. Incrementar contador si es usuario gratuito
+        // 4. Incrementar contador
         if (commerce.is_premium === false) {
             await supabase.from('commerce')
                 .update({ invoice_count: commerce.invoice_count + 1 })
                 .eq('id', commerceId);
         }
 
-        res.send(`<h2>✅ Factura registrada con éxito.</h2><a href="/factura/${commerceId}">← Regresar</a>`);
+        // Agregamos return
+        return res.send(`<h2>✅ Factura registrada con éxito.</h2><a href="/factura/${commerceId}">← Regresar</a>`);
 
     } catch (err: any) {
         console.error('Error:', err);
-        res.status(500).send(`<h2>❌ Error: ${err.message}</h2>`);
+        // Agregamos return
+        return res.status(500).send(`<h2>❌ Error: ${err.message}</h2>`);
     }
 });
 

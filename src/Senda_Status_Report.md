@@ -312,3 +312,52 @@ Senda ha superado la etapa de infraestructura crítica. Actualmente, el servidor
 **Próxima sesión:** 4 de julio de 2026.
 
 ¿Deseas que empecemos mañana con la integración del flujo de las **5 facturas gratuitas** o prefieres enfocarte en el **link de pago de 50 MXN** primero?
+
+Senda ha alcanzado un hito crítico en la estabilidad de su infraestructura. Se ha completado con éxito la comunicación bidireccional entre la API y la base de datos de Supabase, eliminando los errores de esquema que bloqueaban el registro de comercios. El Chatbot ha sido optimizado con una revisión "quirúrgica" para consultar el estado real del comercio (activo/premium/contador de facturas), dotándolo de una inteligencia contextual básica pero funcional para la fase beta.
+
+Logro más importante: Resolución total de errores de esquema en Supabase y optimización del prompt de Gemini para el manejo de estados de cuenta.
+
+✅ Componentes Completados
+1. Backend y Chatbot
+Componente	Estado	Notas
+API Registro (/register)	✅ Funcionando	Alineada con esquema real de DB
+Webhook Mercado Pago	✅ Configurado	Maneja notificaciones y estados
+Chatbot Contextual	✅ Optimizado	Consulta estados is_active, is_premium e invoice_count
+Conexión Vertex AI	✅ Estable	Integra Gemini 1.5 Flash
+2. Base de Datos (Supabase)
+Tabla commerce: Consolidada con todas las columnas necesarias (csd_cer_base64, is_premium, invoice_count, etc.).
+
+Integridad: Eliminados conflictos de inserción por columnas faltantes o mal configuradas.
+
+🚧 Hoja de Ruta Inmediata (Siguientes Pasos)
+Prioridad: Integración de Facturación
+Integración con Facturapi: Conectar el flujo actual de registro con el servicio de timbrado real.
+
+Generación de Link de Pago: Finalizar el endpoint /api/payment/create-preference para el plan beta de 50 MXN.
+
+Flujo de 5 Facturas: Implementar la lógica para que los nuevos comercios inicien con su crédito de regalo.
+
+🔧 Configuración Técnica Actualizada
+Entorno: Servidor Express (Node.js) estable en puerto 3000.
+
+Integración IA: Uso de consulta contextual en tiempo real a la base de datos commerce.
+
+Seguridad: Middlewares de diagnóstico activos y validación robusta de datos en el registro.
+
+🧪 Pruebas Realizadas
+Registro de comercio (Web/API): ✅ Exitoso (Integración completa).
+
+Consistencia de esquemas: ✅ Verificado (Sin errores de "Could not find column").
+
+Consulta de estado vía Chatbot: ✅ Exitoso (El bot distingue entre estados premium y activo).
+
+📝 Notas para la Próxima Sesión
+Bot de WhatsApp: Conectar la lógica del bot con la tabla commerce usando el teléfono como identificador.
+
+Facturapi: Preparar credenciales de sandbox para pruebas de timbrado.
+
+UI: Ajustar register.html para el flujo de pago beta.
+
+Reporte generado por: Asistente de Desarrollo Senda.
+
+¡Disfruta tu salida! Todo está documentado y funcional para cuando regreses a trabajar en la integración del timbrado de facturas.

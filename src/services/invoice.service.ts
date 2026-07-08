@@ -1,11 +1,9 @@
-import 'dotenv/config'; // Carga las variables de entorno al iniciar
+import 'dotenv/config'; 
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
-// Importamos Facturapi
 import Facturapi from 'facturapi';
 
 const router = Router();
-// Inicializamos el cliente de Facturapi
 const facturapi = new Facturapi(process.env.FACTURAPI_SECRET_KEY as string);
 
 /**
@@ -14,7 +12,8 @@ const facturapi = new Facturapi(process.env.FACTURAPI_SECRET_KEY as string);
 router.get('/factura/:commerceId', (req: Request, res: Response) => {
   const { commerceId } = req.params;
 
-  res.send(`
+  // Agregamos return
+  return res.send(`
     <!DOCTYPE html>
     <html lang="es">
     <head>
@@ -85,7 +84,8 @@ router.post('/factura/:commerceId', async (req: Request, res: Response) => {
       return res.status(500).send(`<h2>Error al guardar: ${error.message}</h2>`);
     }
 
-    res.send(`
+    // Agregamos return
+    return res.send(`
       <div style="text-align: center; margin-top: 50px;">
         <h2 style="color: green;">¡Éxito!</h2>
         <p>Datos guardados correctamente en la base de datos.</p>
@@ -94,7 +94,8 @@ router.post('/factura/:commerceId', async (req: Request, res: Response) => {
 
   } catch (err) {
     console.error(err);
-    res.status(500).send('Error interno del servidor.');
+    // Agregamos return
+    return res.status(500).send('Error interno del servidor.');
   }
 });
 

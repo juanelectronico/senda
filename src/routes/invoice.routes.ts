@@ -15,7 +15,8 @@ const InvoiceSchema = z.object({
 
 router.get('/factura/:commerceId', (req: Request, res: Response) => {
   const { commerceId } = req.params;
-  res.send(`
+  // Agregado return
+  return res.send(`
     <form action="/factura/${commerceId}" method="POST">
       <input name="rfc" placeholder="RFC" required><br>
       <input name="razonSocial" placeholder="Razón Social" required><br>
@@ -33,8 +34,6 @@ router.post('/factura/:commerceId', async (req: Request, res: Response) => {
     const validatedData = InvoiceSchema.parse(req.body);
     const { commerceId } = req.params;
 
-    // IMPORTANTE: Si tu tabla se llama distinto en Supabase (ej: 'invoices'), 
-    // cámbialo aquí en .from('Factura')
     const { error } = await supabase
       .from('Factura') 
       .insert([{ 
@@ -49,12 +48,15 @@ router.post('/factura/:commerceId', async (req: Request, res: Response) => {
 
     if (error) {
       console.error("Error exacto de Supabase:", error);
+      // Agregado return
       return res.status(500).json({ error: error.message });
     }
 
-    res.status(201).send('<h1>Factura registrada con éxito</h1>');
+    // Agregado return
+    return res.status(201).send('<h1>Factura registrada con éxito</h1>');
   } catch (err: any) {
-    res.status(400).send(`Error en datos: ${err.message}`);
+    // Agregado return
+    return res.status(400).send(`Error en datos: ${err.message}`);
   }
 });
 
