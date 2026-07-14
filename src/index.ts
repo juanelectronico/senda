@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { supabase } from './config/supabase';
 import { VertexAI } from '@google-cloud/vertexai';
+import paymentRoutes from './routes/payment.routes';
 
 // Importación de rutas
 import webhookRoutes from './routes/webhook.routes';
@@ -13,6 +14,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/api/payment', paymentRoutes);
 
 // --- MIDDLEWARE DE DIAGNÓSTICO ---
 app.use((req, res, next) => {
@@ -56,8 +58,9 @@ app.post('/register', async (req, res) => {
     }
 });
 
-// Registro de otras rutas
-app.use('/webhook', webhookRoutes);
+// --- CORRECCIÓN: Registro de rutas de Webhook ---
+// Ahora Mercado Pago apuntará a /api/webhook/mercadopago
+app.use('/api/webhook', webhookRoutes);
 app.use('/', facturaRoutes);
 
 // Configuración de Vertex AI
