@@ -7,8 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "npx ts-node --transpile-only src/test-ai.ts",
-    "postinstall": "npm run build"
+    "test": "npx ts-node --transpile-only src/test-ai.ts"
   },
   "keywords": [],
   "author": "",
