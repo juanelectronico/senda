@@ -1,1 +1,3 @@
-export const mensajeBienvenida = { texto: "­Hola! Soy Senda ? tu asistente de facturaci¢n. ?? Mi misi¢n es facilitar tu d¡a. Por favor, escribe el RFC que vamos a registrar para comenzar. ??" }; 
+export const mensajeBienvenida = {
+  texto: "Hola! Soy Senda, tu asistente de facturacion. Mi mision es facilitar tu dia. Por favor, escribe el RFC que vamos a registrar para comenzar."
+};
