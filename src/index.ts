@@ -155,9 +155,11 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
   }
 });
 
-console.log('✅ Senda API lista');
-
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 Senda corriendo en http://localhost:${PORT}`));
+console.log('✅ Senda API lista');
+
+const PORT = Number(process.env.PORT) || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
+});
