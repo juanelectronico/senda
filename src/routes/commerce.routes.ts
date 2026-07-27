@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
+import { uploadCertificate } from '../certificateService';
 
 const router = Router();
 
@@ -26,7 +27,7 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    // Guardar en Supabase
+    // Guardar en Supabase (tabla commerce)
     const { data, error } = await supabase
       .from('commerce')
       .insert({
@@ -54,7 +55,19 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
-    // Éxito con return agregado
+    // Si el usuario envió el certificado en base64 durante el registro, lo subimos a nuestro bucket privado
+    if (csd_cer_base64) {
+      try {
+        const cerBuffer = Buffer.from(csd_cer_base64, 'base64');
+        const fileName = `${rfc}_certificate.cer`;
+        
+        await uploadCertificate(data.id, cerBuffer, fileName);
+      } catch (uploadError) {
+        console.error('Aviso: No se pudo subir el archivo .cer al bucket, pero el comercio fue registrado:', uploadError);
+      }
+    }
+
+    // Éxito
     return res.json({
       success: true,
       message: '✅ ¡Registro exitoso! Ya puedes comenzar a facturar con Senda desde WhatsApp.',
@@ -65,9 +78,8 @@ router.post('/register', async (req: Request, res: Response) => {
       }
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error en registro:', error);
-    // Return agregado aquí también
     return res.status(500).json({ 
       success: false, 
       error: 'Error interno del servidor' 

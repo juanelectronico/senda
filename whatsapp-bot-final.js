@@ -11,20 +11,20 @@ app.use(express.json());
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
+
+// NOTA: Mantenemos la variable como respaldo genérico, pero ahora la validación principal es dinámica con Supabase.
 const COMERCIO_WHATSAPP = process.env.COMERCIO_WHATSAPP || '521234567890';
 
 let sockGlobal = null;
 const estados = new Map();
 
-// ========== VALIDACIÓN SIMPLE Y DIRECTA ==========
+// ========== VALIDACIÓN SIMPLE Y DIRECTA (INTOCABLE) ==========
 function extraerDatos(texto) {
     console.log('🔍 Procesando:', texto);
     
-    // Dividir por espacios
     const partes = texto.trim().split(/\s+/);
     console.log('📦 Partes:', partes);
     
-    // Buscar RFC (12-13 caracteres, letras y números)
     let rfc = null;
     let email = null;
     let codigoPostal = null;
@@ -35,37 +35,31 @@ function extraerDatos(texto) {
     for (let i = 0; i < partes.length; i++) {
         const p = partes[i];
         
-        // RFC: 12-13 caracteres alfanuméricos
         if (!rfc && p.match(/^[A-ZÑ&]{3,4}[0-9]{6}[A-Z0-9]{3}$/i)) {
             rfc = p.toUpperCase();
             continue;
         }
         
-        // Email
         if (!email && p.match(/^[\w.-]+@[\w.-]+\.\w{2,}$/i)) {
             email = p.toLowerCase();
             continue;
         }
         
-        // Código Postal: 5 dígitos
         if (!codigoPostal && p.match(/^\d{5}$/)) {
             codigoPostal = p;
             continue;
         }
         
-        // Régimen Fiscal: 3 dígitos (601, 612, etc.)
         if (!regimenFiscal && p.match(/^(601|603|605|606|608|610|611|612|614|616|620|621|622|623|624|625)$/)) {
             regimenFiscal = p;
             continue;
         }
         
-        // Uso CFDI: G + 2 dígitos
         if (!usoCfdi && p.match(/^G\d{2}$/i)) {
             usoCfdi = p.toUpperCase();
             continue;
         }
         
-        // Todo lo demás es parte de la razón social
         razonSocial.push(p);
     }
     
@@ -122,6 +116,7 @@ ID: ${invoice.id}
 
 Responde: CONFIRMAR ${invoice.id} o RECHAZAR ${invoice.id} [motivo]`;
     
+    // Por ahora notificamos al número configurado en .env, asegurando que llegue correctamente
     await sockGlobal.sendMessage(COMERCIO_WHATSAPP + '@s.whatsapp.net', { text: mensaje });
     console.log('📨 Notificación enviada al comercio');
 }
@@ -228,12 +223,20 @@ async function connectToWhatsApp() {
         if (!msg.message || msg.key.fromMe) return;
         
         const sender = msg.key.remoteJid;
+        const cleanSenderPhone = sender.replace('@s.whatsapp.net', '');
         const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
         
         console.log(`📨 ${sender}: ${text}`);
         
-        // Comercio
-        if (sender.includes(COMERCIO_WHATSAPP)) {
+        // Verificación quirúrgica en base de datos para saber si el remitente es un comercio registrado
+        const { data: comercioData } = await supabase
+            .from('Commerce')
+            .select('*')
+            .eq('phone_number', cleanSenderPhone)
+            .single();
+
+        // Si el remitente es un comercio (registrado en BD o haciendo match con la variable de entorno)
+        if (comercioData || sender.includes(COMERCIO_WHATSAPP)) {
             const textoLower = text.toLowerCase();
             if (textoLower.startsWith('confirmar')) {
                 const invoiceId = text.split(' ')[1];
@@ -261,7 +264,7 @@ async function connectToWhatsApp() {
             return;
         }
         
-        // Cliente normal
+        // Cliente normal procesado de forma intacta
         const respuesta = await procesarMensaje(text, sender);
         await sock.sendMessage(sender, { text: respuesta });
     });

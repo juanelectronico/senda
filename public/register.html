@@ -3,426 +3,187 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Senda . Alta de Comercio</title>
+    <title>Senda - Alta de Comercio</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        .bg-senda-gradient {
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-        }
-        .text-senda-gradient {
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .chat-widget {
-            position: fixed;
-            bottom: 24px;
-            right: 24px;
-            z-index: 999;
-        }
-        .chat-toggle {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-            border: none;
-            color: white;
-            font-size: 28px;
-            cursor: pointer;
-            box-shadow: 0 8px 24px rgba(25, 192, 212, 0.4);
-            transition: all 0.3s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .chat-toggle:hover {
-            transform: scale(1.05);
-            box-shadow: 0 8px 32px rgba(25, 192, 212, 0.6);
-        }
-        .chat-box {
-            position: absolute;
-            bottom: 80px;
-            right: 0;
-            width: 380px;
-            height: 480px;
-            background: #1a1a2e;
-            border-radius: 20px;
-            border: 1px solid #2d2d44;
-            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
-            display: none;
-            flex-direction: column;
-            overflow: hidden;
-        }
-        .chat-box.open {
-            display: flex;
-        }
-        .chat-header {
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-            padding: 16px 20px;
-            color: white;
-            font-weight: bold;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .chat-header button {
-            background: none;
-            border: none;
-            color: white;
-            font-size: 20px;
-            cursor: pointer;
-        }
-        .chat-messages {
-            flex: 1;
-            padding: 16px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-        .chat-message {
-            padding: 10px 14px;
-            border-radius: 12px;
-            max-width: 85%;
-            font-size: 14px;
-            line-height: 1.5;
-            word-wrap: break-word;
-        }
-        .chat-message.user {
-            background: #2d2d44;
-            color: #e0e0e0;
-            align-self: flex-end;
-            border-bottom-right-radius: 4px;
-        }
-        .chat-message.bot {
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-            color: white;
-            align-self: flex-start;
-            border-bottom-left-radius: 4px;
-        }
-        .chat-input-area {
-            display: flex;
-            gap: 8px;
-            padding: 12px 16px;
-            background: #12121f;
-            border-top: 1px solid #2d2d44;
-        }
-        .chat-input-area input {
-            flex: 1;
-            padding: 10px 14px;
-            border-radius: 12px;
-            border: 1px solid #2d2d44;
-            background: #0d0d1a;
-            color: white;
-            font-size: 14px;
-            outline: none;
-        }
-        .chat-input-area input:focus {
-            border-color: #19C0D4;
-        }
-        .chat-input-area button {
-            padding: 10px 16px;
-            border-radius: 12px;
-            border: none;
-            background: linear-gradient(135deg, #19C0D4 0%, #5AB740 100%);
-            color: white;
-            font-weight: bold;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        .chat-input-area button:hover {
-            opacity: 0.8;
-        }
-        .typing-indicator {
-            display: none;
-            padding: 10px 14px;
-            background: #2d2d44;
-            border-radius: 12px;
-            align-self: flex-start;
-            color: #888;
-            font-size: 13px;
-        }
-        .typing-indicator.active {
-            display: block;
-        }
-        .file-upload {
-            position: relative;
-            overflow: hidden;
-        }
-        .file-upload input[type="file"] {
-            position: absolute;
-            left: 0;
-            top: 0;
-            opacity: 0;
-            width: 100%;
-            height: 100%;
-            cursor: pointer;
-        }
-        .file-name {
-            font-size: 12px;
-            color: #888;
-            margin-top: 4px;
-        }
-        @media (max-width: 500px) {
-            .chat-box {
-                width: 320px;
-                right: 0;
-                bottom: 76px;
-            }
-        }
-    </style>
 </head>
-<body class="bg-gray-950 font-sans antialiased text-gray-100 min-h-screen flex flex-col justify-between">
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4">
 
-    <header class="w-full bg-gray-900 border-b border-gray-800 py-5 px-6 sm:px-12">
-        <div class="max-w-6xl mx-auto flex items-center justify-between">
-            <div class="text-2xl font-black tracking-tight text-white">
-                senda<span class="text-[#19C0D4]">.</span>
-            </div>
-            <div class="text-sm font-medium text-gray-400 bg-gray-800 px-4 py-1.5 rounded-full border border-gray-700">
-                Alta de Comercio · SAT + Facturapi
-            </div>
-        </div>
-    </header>
+    <div class="max-w-xl w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl my-8">
+        <h1 class="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-400 to-emerald-500 mb-2 text-center">
+            Alta de Comercio
+        </h1>
+        <p class="text-slate-400 text-sm text-center mb-6">
+            Registra tu negocio con tus credenciales del SAT y vincula tu WhatsApp para automatizar la facturación de tus clientes.
+        </p>
 
-    <main class="w-full max-w-4xl mx-auto px-4 py-8 flex flex-col items-center gap-8">
-        
-        <div class="w-full text-center space-y-4">
-            <h2 class="text-3xl sm:text-4xl font-extrabold text-white tracking-tight">
-                Alta de <span class="text-senda-gradient">Comercio</span>
-            </h2>
-            <p class="text-gray-400 text-lg max-w-2xl mx-auto">
-                Registra tu negocio con tus credenciales del SAT para comenzar a facturar a través de WhatsApp.
+        <!-- Formulario -->
+        <form id="registerForm" class="space-y-4">
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">RFC *</label>
+                <input type="text" id="rfc" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="XEXX010101000">
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Razón Social *</label>
+                <input type="text" id="business_name" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="Mi Comercio S.A. de C.V.">
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Régimen Fiscal *</label>
+                    <select id="tax_regime" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500">
+                        <option value="">Selecciona un régimen...</option>
+                        <option value="601">601 - General de Ley Personas Morales</option>
+                        <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
+                        <option value="605">605 - Sueldos y Salarios e Ingresos Asimilados a Salarios</option>
+                        <option value="606">606 - Arrendamiento</option>
+                        <option value="607">607 - Demás ingresos</option>
+                        <option value="608">608 - Residentes en el Extranjero sin Establecimiento Permanente en México</option>
+                        <option value="610">610 - Ingresos por Dividendos (socios y accionistas)</option>
+                        <option value="611">611 - Ingresos por Salarios y en General por la Prestación de un Servicio Personal Subordinado</option>
+                        <option value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</option>
+                        <option value="614">614 - Ingresos por intereses</option>
+                        <option value="615">615 - Régimen de los ingresos por obtención de premios</option>
+                        <option value="616">616 - Sin obligaciones fiscales</option>
+                        <option value="620">620 - Sociedades Cooperativas de Producción que optan por diferir sus ingresos</option>
+                        <option value="621">621 - Incorporación Fiscal</option>
+                        <option value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
+                        <option value="623">623 - Opcional para Grupos de Sociedades</option>
+                        <option value="624">624 - Coordinados</option>
+                        <option value="625">625 - Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</option>
+                        <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Código Postal *</label>
+                    <input type="text" id="zip_code" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="01000">
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Teléfono (WhatsApp) *</label>
+                    <input type="text" id="phone" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="5215512345678">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Correo Electrónico *</label>
+                    <input type="email" id="email" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="correo@dominio.com">
+                </div>
+            </div>
+
+            <hr class="border-slate-800 my-4">
+            <h3 class="text-sm font-bold text-teal-400 uppercase tracking-wider">Credenciales CSD (SAT)</h3>
+
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Certificado (.cer)</label>
+                    <input type="file" id="cer_file" class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Llave Privada (.key)</label>
+                    <input type="file" id="key_file" class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
+                </div>
+            </div>
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Contraseña de la Clave Privada</label>
+                <input type="password" id="csd_password" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="••••••••">
+            </div>
+
+            <button type="submit" id="submitBtn" class="w-full mt-6 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-bold py-3 rounded-lg transition-all shadow-lg">
+                Registrar Comercio
+            </button>
+        </form>
+    </div>
+
+    <!-- VENTANA EMERGENTE (MODAL FLOTANTE) -->
+    <div id="paymentModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-center shadow-2xl space-y-4">
+            <div class="w-16 h-16 bg-teal-500/10 text-teal-400 rounded-full flex items-center justify-center mx-auto text-2xl font-bold">
+                ✓
+            </div>
+            <h3 class="text-xl font-bold text-slate-100">¡Comercio Registrado con Éxito!</h3>
+            <p class="text-slate-400 text-sm">
+                Tu cuenta está lista. Solo falta completar tu aportación de activación por <span class="text-teal-400 font-bold">$50.00 MXN</span> para habilitar las facturas automáticas en WhatsApp.
             </p>
-        </div>
-
-        <div class="w-full bg-gray-900 rounded-3xl shadow-2xl p-6 sm:p-10 border border-gray-800">
-            <div id="status-message" class="hidden mb-6 p-4 rounded-xl text-sm font-semibold text-center"></div>
-
-            <form id="register-form" class="space-y-5" enctype="multipart/form-data">
-                <!-- Sección: Datos Fiscales -->
-                <div class="border-b border-gray-800 pb-4">
-                    <h3 class="text-lg font-bold text-white mb-4">📋 Datos Fiscales</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">RFC *</label>
-                            <input type="text" name="rfc" required maxlength="13" class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all placeholder-gray-500" placeholder="XAXX010101000" style="text-transform: uppercase;">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Razón Social *</label>
-                            <input type="text" name="business_name" required class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all placeholder-gray-500" placeholder="Mi Comercio S.A. de C.V.">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Régimen Fiscal *</label>
-                            <select name="tax_regime" required class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all">
-                                <option value="601">601 - General de Ley Personas Morales</option>
-                                <option value="603">603 - Personas Morales con Fines no Lucrativos</option>
-                                <option value="605">605 - Sueldos y Salarios</option>
-                                <option value="606">606 - Arrendamiento</option>
-                                <option value="607">607 - Régimen de Enajenación o Adquisición de Bienes</option>
-                                <option value="608">608 - Demás ingresos</option>
-                                <option value="610">610 - Residentes en el Extranjero sin Establecimiento Permanente</option>
-                                <option value="611">611 - Ingresos por Dividendos</option>
-                                <option value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</option>
-                                <option value="614">614 - Ingresos por Intereses</option>
-                                <option value="615">615 - Régimen de los Ingresos por Obtención de Premios</option>
-                                <option value="616">616 - Sin Obligaciones Fiscales</option>
-                                <option value="620">620 - Sociedades Cooperativas de Producción que optan por diferir sus ingresos</option>
-                                <option value="621">621 - Incorporación Fiscal</option>
-                                <option value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</option>
-                                <option value="623">623 - Opcional para Grupos de Sociedades</option>
-                                <option value="624">624 - Coordinados</option>
-                                <option value="625">625 - Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas</option>
-                                <option value="626">626 - Régimen Simplificado de Confianza (RESICO)</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Código Postal *</label>
-                            <input type="text" name="zip_code" required maxlength="5" class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all placeholder-gray-500" placeholder="01000">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sección: Credenciales SAT (CSD) -->
-                <div class="border-b border-gray-800 pb-4">
-                    <h3 class="text-lg font-bold text-white mb-4">🔐 Credenciales SAT (CSD)</h3>
-                    <p class="text-sm text-gray-400 mb-4">Sube los archivos .cer y .key que te proporcionó el SAT, e ingresa la contraseña.</p>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Archivo .cer *</label>
-                            <div class="file-upload w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all cursor-pointer text-center">
-                                <span>📁 Seleccionar archivo .cer</span>
-                                <input type="file" name="csd_cer" accept=".cer" required>
-                            </div>
-                            <div id="cer-file-name" class="file-name">Ningún archivo seleccionado</div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Archivo .key *</label>
-                            <div class="file-upload w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all cursor-pointer text-center">
-                                <span>📁 Seleccionar archivo .key</span>
-                                <input type="file" name="csd_key" accept=".key" required>
-                            </div>
-                            <div id="key-file-name" class="file-name">Ningún archivo seleccionado</div>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Contraseña del .key *</label>
-                            <input type="password" name="csd_password" required class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all placeholder-gray-500" placeholder="••••••••••••">
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Sección: Contacto -->
-                <div class="border-b border-gray-800 pb-4">
-                    <h3 class="text-lg font-bold text-white mb-4">📱 Contacto</h3>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Correo Electrónico *</label>
-                            <input type="email" name="email" required class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#19C0D4] transition-all placeholder-gray-500" placeholder="contacto@comercio.com">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">WhatsApp *</label>
-                            <input type="tel" name="phone" required maxlength="10" class="w-full px-4 py-3 rounded-xl bg-gray-800 border border-gray-700 text-white font-medium focus:outline-none focus:ring-2 focus:ring-[#5AB740] transition-all placeholder-gray-500" placeholder="5512345678">
-                        </div>
-                    </div>
-                </div>
-
-                <button type="submit" id="submit-btn" class="w-full bg-senda-gradient text-white py-4 rounded-xl text-lg font-bold hover:opacity-90 transition-all shadow-lg mt-2">
-                    ✅ Activar mi Comercio
-                </button>
-            </form>
-        </div>
-    </main>
-
-    <footer class="w-full bg-gray-900 border-t border-gray-800 py-6 px-6 text-center sm:text-right">
-        <div class="max-w-6xl mx-auto text-xs text-gray-500">
-            Desarrollada por Juan Carlos Viera, CDMX 2025. Todos los derechos reservados.
-        </div>
-    </footer>
-
-    <!-- CHAT WIDGET -->
-    <div class="chat-widget">
-        <div class="chat-box" id="chatBox">
-            <div class="chat-header">
-                <span>🤖 Senda Bot</span>
-                <button id="closeChat">✕</button>
-            </div>
-            <div class="chat-messages" id="chatMessages">
-                <div class="chat-message bot">👋 ¡Hola! Soy Senda Bot. ¿Cómo puedo ayudarte con tu facturación hoy?</div>
-            </div>
-            <div class="typing-indicator" id="typingIndicator">Senda Bot está escribiendo...</div>
-            <div class="chat-input-area">
-                <input type="text" id="chatInput" placeholder="Escribe tu mensaje..." />
-                <button id="sendChat">Enviar</button>
+            <div id="modalAction" class="pt-4">
+                <!-- El botón de pago exclusivo de Mercado Pago se inyectará aquí -->
             </div>
         </div>
-        <button class="chat-toggle" id="chatToggle">💬</button>
     </div>
 
     <script>
-        // ----- Mostrar nombres de archivos seleccionados -----
-        document.querySelector('input[name="csd_cer"]').addEventListener('change', function(e) {
-            const fileName = e.target.files[0] ? e.target.files[0].name : 'Ningún archivo seleccionado';
-            document.getElementById('cer-file-name').textContent = fileName;
-        });
+        const fileToBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = () => {
+                    const base64String = reader.result.split(',')[1];
+                    resolve(base64String);
+                };
+                reader.onerror = (error) => reject(error);
+            });
+        };
 
-        document.querySelector('input[name="csd_key"]').addEventListener('change', function(e) {
-            const fileName = e.target.files[0] ? e.target.files[0].name : 'Ningún archivo seleccionado';
-            document.getElementById('key-file-name').textContent = fileName;
-        });
-
-        // ----- Registro de Comercio -----
-        const form = document.getElementById('register-form');
-        const statusMessage = document.getElementById('status-message');
-        const submitBtn = document.getElementById('submit-btn');
-
-        form.addEventListener('submit', async (e) => {
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
-            submitBtn.disabled = true;
-            submitBtn.innerText = '⏳ Procesando alta...';
-            statusMessage.className = "hidden";
-
-            const formData = new FormData(form);
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.textContent = 'Registrando comercio...';
 
             try {
+                const cerFileInput = document.getElementById('cer_file').files[0];
+                const keyFileInput = document.getElementById('key_file').files[0];
+
+                let csd_cer_base64 = '';
+                let csd_key_base64 = '';
+
+                if (cerFileInput) {
+                    csd_cer_base64 = await fileToBase64(cerFileInput);
+                }
+                if (keyFileInput) {
+                    csd_key_base64 = await fileToBase64(keyFileInput);
+                }
+
+                const payload = {
+                    rfc: document.getElementById('rfc').value,
+                    business_name: document.getElementById('business_name').value,
+                    tax_regime: document.getElementById('tax_regime').value,
+                    zip_code: document.getElementById('zip_code').value,
+                    phone: document.getElementById('phone').value,
+                    email: document.getElementById('email').value,
+                    csd_cer_base64: csd_cer_base64,
+                    csd_key_base64: csd_key_base64,
+                    csd_password: document.getElementById('csd_password').value
+                };
+
                 const response = await fetch('/api/commerce/register', {
                     method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                if (response.ok && result.success) {
-                    statusMessage.innerText = result.message;
-                    statusMessage.className = "mb-6 p-4 rounded-xl text-sm font-semibold text-center bg-green-900/50 text-green-200 border border-green-700";
-                    form.reset();
-                    document.getElementById('cer-file-name').textContent = 'Ningún archivo seleccionado';
-                    document.getElementById('key-file-name').textContent = 'Ningún archivo seleccionado';
-                } else {
-                    throw new Error(result.error || 'Error en el servidor');
-                }
-            } catch (error) {
-                statusMessage.innerText = error.message || 'Error de conexión';
-                statusMessage.className = "mb-6 p-4 rounded-xl text-sm font-semibold text-center bg-red-900/50 text-red-200 border border-red-700";
-            } finally {
-                submitBtn.disabled = false;
-                submitBtn.innerText = '✅ Activar mi Comercio';
-            }
-        });
-
-        // ----- Chat-Bot -----
-        const chatToggle = document.getElementById('chatToggle');
-        const chatBox = document.getElementById('chatBox');
-        const closeChat = document.getElementById('closeChat');
-        const chatInput = document.getElementById('chatInput');
-        const sendBtn = document.getElementById('sendChat');
-        const chatMessages = document.getElementById('chatMessages');
-        const typingIndicator = document.getElementById('typingIndicator');
-
-        function toggleChat() {
-            chatBox.classList.toggle('open');
-        }
-
-        chatToggle.addEventListener('click', toggleChat);
-        closeChat.addEventListener('click', toggleChat);
-
-        function addMessage(text, sender) {
-            const div = document.createElement('div');
-            div.className = `chat-message ${sender}`;
-            div.textContent = text;
-            chatMessages.appendChild(div);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        async function sendMessage() {
-            const msg = chatInput.value.trim();
-            if (!msg) return;
-
-            addMessage(msg, 'user');
-            chatInput.value = '';
-            chatInput.disabled = true;
-            sendBtn.disabled = true;
-            typingIndicator.classList.add('active');
-
-            try {
-                const response = await fetch('/api/chat-bot', {
-                    method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mensaje: msg })
+                    body: JSON.stringify(payload)
                 });
-                const data = await response.json();
-                typingIndicator.classList.remove('active');
-                addMessage(data.respuesta || 'Lo siento, no pude procesar tu solicitud.', 'bot');
-            } catch (error) {
-                typingIndicator.classList.remove('active');
-                addMessage('Error de conexión con el servidor.', 'bot');
-            } finally {
-                chatInput.disabled = false;
-                sendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
 
-        sendBtn.addEventListener('click', sendMessage);
-        chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') sendMessage();
+                const result = await response.json();
+
+                if (result.success) {
+                    const modalAction = document.getElementById('modalAction');
+                    if (result.init_point) {
+                        modalAction.innerHTML = `
+                            <a href="${result.init_point}" class="block w-full bg-teal-400 hover:bg-teal-300 text-slate-950 font-bold py-3 rounded-lg transition-all shadow-lg text-center">
+                                Pagar $50.00 MXN en Mercado Pago
+                            </a>
+                        `;
+                    } else {
+                        modalAction.innerHTML = `<p class="text-amber-400 text-sm">No se pudo generar el link de pago automático, contacta soporte.</p>`;
+                    }
+                    document.getElementById('paymentModal').classList.remove('hidden');
+                } else {
+                    alert('Error: ' + (result.error || 'No se pudo completar el registro'));
+                    btn.disabled = false;
+                    btn.textContent = 'Registrar Comercio';
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Error procesando los archivos o conectando con el servidor.');
+                btn.disabled = false;
+                btn.textContent = 'Registrar Comercio';
+            }
         });
     </script>
 </body>

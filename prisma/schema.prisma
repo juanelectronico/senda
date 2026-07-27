@@ -8,33 +8,36 @@ datasource db {
 }
 
 model Commerce {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  rfc            String    @unique @db.VarChar(13)
-  business_name  String    @db.VarChar(255)
-  tax_regime     String    @db.VarChar(100)
-  zip_code       String    @db.VarChar(5)
-  phone          String    @unique @db.VarChar(15)
-  email          String    @db.VarChar(255)
-  csd_cer_base64 String?
-  csd_key_base64 String?
-  csd_password   String?   @db.VarChar(100)
-  is_active      Boolean?  @default(true)
-  createdAt      DateTime? @default(now()) @map("created_at") @db.Timestamp(6)
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  rfc              String       @unique @db.VarChar(13)
+  business_name    String       @db.VarChar(255)
+  tax_regime       String       @db.VarChar(100)
+  zip_code         String       @db.VarChar(5)
+  phone            String       @unique @db.VarChar(15)
+  email            String       @db.VarChar(255)
+  csd_cer_base64   String?
+  csd_key_base64   String?
+  csd_password     String?      @db.VarChar(100)
+  invoice_count    Int?         @default(0)
+  is_premium       Boolean?     @default(false)
+  certificate_path String?      @db.VarChar(255)
+  is_active        Boolean?     @default(true)
+  createdAt        DateTime?    @default(now()) @map("created_at") @db.Timestamp(6)
 
-  customers      Customer[]
-  invoices       Invoice[]
+  customers        Customer[]
+  invoices         Invoice[]
 
   @@map("commerce")
 }
 
 model Customer {
-  id          String   @id @default(uuid())
-  rfc         String   @unique
-  razonSocial String
-  email       String
-  commerceId  String   @db.Uuid
-  commerce    Commerce @relation(fields: [commerceId], references: [id])
-  createdAt   DateTime @default(now())
+  id           String   @id @default(uuid())
+  rfc          String   @unique
+  razonSocial  String
+  email        String
+  commerceId   String   @db.Uuid
+  commerce     Commerce @relation(fields: [commerceId], references: [id])
+  createdAt    DateTime @default(now())
 
   @@map("customer")
 }

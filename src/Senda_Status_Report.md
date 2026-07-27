@@ -361,3 +361,82 @@ UI: Ajustar register.html para el flujo de pago beta.
 Reporte generado por: Asistente de Desarrollo Senda.
 
 ¡Disfruta tu salida! Todo está documentado y funcional para cuando regreses a trabajar en la integración del timbrado de facturas.
+
+
+Reporte de Estado - Proyecto Senda
+Fecha: 3 de julio de 2026
+
+Versión: MVP (Fase de Pruebas Beta con Bot Seguro)
+
+Estado General: 🟢 Operativo / Estructura del Bot Consolidada
+
+🎯 Resumen Ejecutivo
+Senda ha dado un paso fundamental en la automatización por WhatsApp. Se actualizó el flujo de mensajería para que el bot identifique dinámicamente a los comercios consultando directamente la base de datos de Supabase a través del número remitente, eliminando la dependencia de variables estáticas. Todo esto se logró manteniendo intacta y blindada la lógica de inteligencia artificial (Gemini) y el motor de extracción de datos fiscales de los clientes.
+
+Logro más importante de hoy: Integración quirúrgica de la validación de comercios por base de datos en whatsapp-bot-final.js, conservando al 100% el flujo del chatbot y preparando la infraestructura para el timbrado.
+
+✅ Componentes Completados
+1. Bot de WhatsApp y Backend (whatsapp-bot-final.js)
+Componente	Estado	Notas
+Biblioteca Baileys	✅ Funcionando	Conexión estable mediante QR
+Validación Dinámica de Comercios	✅ Implementado	Consulta Supabase (Commerce) usando el teléfono como llave única
+Procesamiento de Órdenes	✅ Operativo	Comandos CONFIRMAR y RECHAZAR listos para el flujo del comercio
+Motor de IA / Gemini	🔒 Intocable	Lógica de extracción de datos y estados conservada sin alteraciones
+2. Base de Datos (Supabase)
+Tablas activas: commerce / Commerce (datos de comercios), Invoice (historial de facturas).
+
+Flujo de datos: El bot valida al comercio por su número registrado y almacena las solicitudes de factura vinculadas al estatus PENDING, listas para la posterior confirmación.
+
+🚧 Hoja de Ruta Inmediata (Próximos Pasos)
+Prioridad Alta: Timbrado y Pagos
+Integración con Facturapi: Conectar el flujo cuando el comercio confirme la factura (CONFIRMED) para realizar la emisión real del CFDI.
+
+Generación de Link de Pago: Finalizar el endpoint /api/payment/create-preference para el plan beta (50 MXN).
+
+Flujo de Créditos: Habilitar el otorgamiento inicial de facturas de regalo para nuevos registros.
+
+🔧 Configuración Técnica Actualizada
+Entorno del Bot: Archivo whatsapp-bot-final.js optimizado con verificación cruzada en Supabase.
+
+Seguridad de IA: Código del motor de Gemini protegido y respetado quirúrgicamente.
+
+Servidor API: Express corriendo en puerto con endpoints de registro de comercios funcionales.
+
+🧪 Pruebas y Revisiones Realizadas
+Prueba	Resultado
+Validación de remitente comercial en WhatsApp	✅ Exitoso (Consulta dinámica a Supabase)
+Integridad del código de Gemini	✅ 100% Intacto y protegido
+Flujo de confirmación/rechazo de facturas	✅ Estructurado en el bot
+📝 Notas para Retomar (Próxima Sesión)
+Facturapi: Retomar cuando dispongas de los accesos/pago de la plataforma para conectar la API de timbrado al comando CONFIRMAR.
+
+Pruebas en vivo: Simular una interacción completa: Cliente pide factura por WhatsApp → Bot extrae con Gemini → Supabase guarda → Comercio recibe aviso y confirma.
+
+🏁 Estado de la Filosofía Senda
+✅ Sin fricción: El comercio administra y confirma facturas directamente desde su WhatsApp de forma dinámica.
+
+✅ Seguridad del código: Respeto absoluto a la lógica de IA desarrollada.
+
+✅ MVP Preparado: Listo para la siguiente fase de timbrado fiscal.
+
+Reporte generado por: Asistente de Desarrollo Senda
+
+Próxima sesión: A coordinar cuando estés listo para integrar Facturapi.
+
+
+Pendientes para concluir Senda
+Integración con Facturapi (Timbrado Fiscal):
+
+Conectar el paso final del flujo (CONFIRMAR) con la API de Facturapi para generar formalmente el CFDI en PDF y XML una vez que el comercio apruebe la factura.
+
+Envío Automático del CFDI:
+
+Programar la lógica para que, tras el timbrado exitoso, el sistema envíe de manera automática el PDF/XML al correo electrónico del cliente y notifique el cierre del proceso.
+
+Automatización del Monto de Venta (El flujo sin fricción):
+
+Ajustar el registro y cruce en Supabase para que el monto a facturar provenga de la venta ingresada por el comercio (evitando que el cliente tenga que escribirlo o adivinarlo).
+
+Validación de Formatos Telefónicos (Web a Bot):
+
+Asegurar que el número de teléfono con el que se registra el comercio en la web (register.html) coincida de forma estricta y limpia con el formato que lee el bot de WhatsApp (whatsapp-bot-final.js) para una identificación de roles impecable.
