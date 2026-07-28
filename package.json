@@ -6,7 +6,7 @@
   "scripts": {
     "build": "npm run clean && tsc && prisma generate",
     "postinstall": "prisma generate",
-    "start": "node dist/index.js",
+    "start": "npx prisma migrate deploy && node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "npx ts-node --transpile-only src/test-ai.ts",
     "prisma:generate": "prisma generate",
