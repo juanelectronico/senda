@@ -97,6 +97,7 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
         body: {
           items: [
             {
+              id: 'subscription_alta_senda',
               title: 'Alta de Comercio y Suscripción Senda',
               quantity: 1,
               unit_price: 50.00
@@ -146,7 +147,10 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
     const prompt = `Eres Senda Bot, un asistente virtual experto en facturación electrónica en México (SAT), alta de comercios y vinculación con WhatsApp. Responde de forma amable, clara y concisa a la siguiente duda del usuario: "${mensaje}"`;
     
     const chatResult = await model.generateContent(prompt);
-    const responseText = chatResult.response.text();
+    
+    // Extracción segura del texto compatible con VertexAI SDK
+    const responseCandidate = chatResult.response?.candidates?.[0];
+    const responseText = responseCandidate?.content?.parts?.[0]?.text || 'Lo siento, no pude generar una respuesta.';
 
     return res.json({ respuesta: responseText });
   } catch (error: any) {
