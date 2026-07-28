@@ -164,6 +164,6 @@ app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 console.log('✅ Senda API lista');
 
 const PORT = Number(process.env.PORT) || 3000;
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
 });
