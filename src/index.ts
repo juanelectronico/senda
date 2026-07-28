@@ -25,6 +25,11 @@ app.use((req, res, next) => {
 const publicDir = path.join(process.cwd(), 'public');
 app.use(express.static(publicDir));
 
+// Redirección de la raíz al formulario de registro para evitar errores 404
+app.get('/', (req, res) => {
+    res.redirect('/register.html');
+});
+
 app.get('/register.html', (req, res) => {
     res.sendFile(path.join(publicDir, 'register.html'));
 });
@@ -89,6 +94,11 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
       });
     }
 
+    // Obtener la URL base de forma dinámica (funciona tanto en local como en Railway)
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
     // Crear la preferencia de pago en Mercado Pago por $50.00 MXN
     let initPoint = null;
     try {
@@ -105,9 +115,9 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
           ],
           payer: { email },
           back_urls: {
-            success: 'http://localhost:3000/register.html?status=success',
-            failure: 'http://localhost:3000/register.html?status=failure',
-            pending: 'http://localhost:3000/register.html?status=pending'
+            success: `${baseUrl}/register.html?status=success`,
+            failure: `${baseUrl}/register.html?status=failure`,
+            pending: `${baseUrl}/register.html?status=pending`
           }
         }
       });
@@ -148,7 +158,6 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
     
     const chatResult = await model.generateContent(prompt);
     
-    // Extracción segura del texto compatible con VertexAI SDK
     const responseCandidate = chatResult.response?.candidates?.[0];
     const responseText = responseCandidate?.content?.parts?.[0]?.text || 'Lo siento, no pude generar una respuesta.';
 
