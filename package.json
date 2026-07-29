@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "scripts": {
     "clean": "rimraf dist",
-    "build": "npm run clean && tsc",
+    "build": "npm run clean && tsc && prisma generate",
     "start": "prisma migrate deploy && node dist/index.js",
     "dev": "tsx src/index.ts",
     "test": "npx ts-node --transpile-only src/test-ai.ts",
