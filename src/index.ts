@@ -108,7 +108,8 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
               id: 'subscription_alta_senda',
               title: 'Alta de Comercio y Suscripción Senda',
               quantity: 1,
-              unit_price: 50.00
+              unit_price: 50.00,
+              currency_id: 'MXN'
             }
           ],
           payer: { email },
@@ -166,11 +167,55 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
   }
 });
 
-app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
-
-// --- ARRANQUE DEL SERVIDOR (OBLIGATORIO PARA RAILWAY) ---
-const PORT = Number(process.env.PORT) || 3000;
-
-app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
+// --- HEALTH CHECK PARA RAILWAY (OBLIGATORIO) ---
+app.get('/health', (req, res) => {
+    res.status(200).json({ 
+        status: 'ok',
+        message: 'Senda API funcionando correctamente',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
 });
+
+// --- MANEJO DE ERRORES GLOBAL (PARA QUE RAILWAY NO SE CAIGA) ---
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('❌ Error global no capturado:', err);
+    res.status(500).json({ 
+        success: false, 
+        error: 'Error interno del servidor',
+        message: err.message || 'Error desconocido'
+    });
+});
+
+// --- ARRANQUE DEL SERVIDOR (CONFIGURACIÓN ESPECÍFICA PARA RAILWAY) ---
+const PORT = parseInt(process.env.PORT || '3000', 10);
+
+// Iniciar servidor escuchando en todas las interfaces
+const server = app.listen(PORT, '0.0.0.0', () => {
+    console.log('========================================');
+    console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
+    console.log(`🌐 Health check: /health`);
+    console.log(`📋 Registro: /register.html`);
+    console.log(`💬 Chat-bot: POST /api/chat-bot`);
+    console.log(`🔄 Proceso ID: ${process.pid}`);
+    console.log('========================================');
+});
+
+// --- MANEJAR CIERRE GRACIAL PARA RAILWAY ---
+process.on('SIGTERM', () => {
+    console.log('🛑 SIGTERM recibido, cerrando servidor...');
+    server.close(() => {
+        console.log('✅ Servidor cerrado correctamente');
+        process.exit(0);
+    });
+});
+
+process.on('SIGINT', () => {
+    console.log('🛑 SIGINT recibido, cerrando servidor...');
+    server.close(() => {
+        console.log('✅ Servidor cerrado correctamente');
+        process.exit(0);
+    });
+});
+
+export default app;
