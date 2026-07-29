@@ -23,11 +23,14 @@ COPY . .
 # 7. Generar el cliente de Prisma
 RUN npx prisma generate
 
-# 8. Compilar el proyecto de TypeScript a JavaScript
+# 8. FORZAR REBUILD - Esto rompe la caché de Docker
+RUN echo "Build timestamp: $(date)" > /dev/null
+
+# 9. Compilar el proyecto de TypeScript a JavaScript
 RUN npm run build
 
-# 9. Exponer el puerto (cambia 3000 si tu app usa otro)
+# 10. Exponer el puerto (cambia 3000 si tu app usa otro)
 EXPOSE 3000
 
-# 10. Comando de inicio
+# 11. Comando de inicio
 CMD ["node", "dist/index.js"]
