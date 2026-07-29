@@ -6,10 +6,24 @@ import { supabase } from './config/supabase';
 import { VertexAI } from '@google-cloud/vertexai';
 import { MercadoPagoConfig, Preference } from 'mercadopago';
 
+// ============================================
+// LOGS DE DIAGNÓSTICO PARA RAILWAY
+// ============================================
+console.log('🔍 [1] Iniciando aplicación...');
+console.log('🔍 [2] NODE_ENV:', process.env.NODE_ENV || 'no definido');
+console.log('🔍 [3] PORT:', process.env.PORT || 'no definido');
+console.log('🔍 [4] SUPABASE_URL:', process.env.SUPABASE_URL ? '✅ Configurada' : '❌ No configurada');
+console.log('🔍 [5] MP_ACCESS_TOKEN:', process.env.MP_ACCESS_TOKEN ? '✅ Configurado' : '❌ No configurado');
+console.log('🔍 [6] GOOGLE_CLOUD_PROJECT:', process.env.GOOGLE_CLOUD_PROJECT ? '✅ Configurado' : '❌ No configurado');
+console.log('🔍 [7] Directorio actual:', process.cwd());
+console.log('========================================');
+
 // Configura tu cliente de Mercado Pago con tu Access Token del archivo .env
 const mpClient = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN || '' });
 
 const app = express();
+
+console.log('🔍 [8] Configurando middlewares...');
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -23,6 +37,7 @@ app.use((req, res, next) => {
 
 // --- 2. SERVIDOR DE ARCHIVOS ESTÁTICOS Y RUTAS FRONTEND ---
 const publicDir = path.join(process.cwd(), 'public');
+console.log('🔍 [9] Directorio público:', publicDir);
 app.use(express.static(publicDir));
 
 // Redirección de la raíz al formulario de registro para evitar errores 404
@@ -38,12 +53,16 @@ app.get('/register', (req, res) => {
     res.sendFile(path.join(publicDir, 'register.html'));
 });
 
+console.log('🔍 [10] Configurando Vertex AI...');
+
 // Configuración de Vertex AI
 const project = process.env.GOOGLE_CLOUD_PROJECT || '';
 const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
 const vertexAI = new VertexAI({ project, location });
 const modelName = `projects/${project}/locations/${location}/publishers/google/models/gemini-1.5-flash`;
 const model = vertexAI.preview.getGenerativeModel({ model: modelName });
+
+console.log('🔍 [11] Configurando endpoints...');
 
 // --- ENDPOINT DE REGISTRO CON MERCADO PAGO ---
 app.post('/api/commerce/register', async (req: any, res: any) => {
@@ -187,6 +206,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
 });
 
+console.log('🔍 [12] Iniciando servidor...');
+
 // --- ARRANQUE DEL SERVIDOR (CONFIGURACIÓN ESPECÍFICA PARA RAILWAY) ---
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
@@ -199,6 +220,9 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`💬 Chat-bot: POST /api/chat-bot`);
     console.log(`🔄 Proceso ID: ${process.pid}`);
     console.log('========================================');
+}).on('error', (err) => {
+    console.error('❌ Error al iniciar servidor:', err);
+    process.exit(1);
 });
 
 // --- MANEJAR CIERRE GRACIAL PARA RAILWAY ---
