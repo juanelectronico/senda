@@ -94,12 +94,10 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
       });
     }
 
-    // Obtener la URL base de forma dinámica (funciona tanto en local como en Railway)
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
 
-    // Crear la preferencia de pago en Mercado Pago por $50.00 MXN
     let initPoint = null;
     try {
       const preference = new Preference(mpClient);
@@ -170,11 +168,9 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
 
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok' }));
 
-console.log('✅ Senda API lista');
-
+// --- ARRANQUE DEL SERVIDOR (OBLIGATORIO PARA RAILWAY) ---
 const PORT = Number(process.env.PORT) || 3000;
 
-// Configurado correctamente para escuchar en 0.0.0.0 en Railway
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
+    console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
 });

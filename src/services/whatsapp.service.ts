@@ -1,25 +1,13 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
-const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
-const fs = require('fs');
-const express = require('express');
-const { createClient } = require('@supabase/supabase-js');
-const https = require('https');
-require('dotenv').config();
-
-// Configuración
-const app = express();
-app.use(express.json());
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const supabase = createClient(supabaseUrl, supabaseKey);
+import { default as makeWASocket, useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import { Boom } from '@hapi/boom';
+import * as qrcode from 'qrcode-terminal';
+import * as https from 'https';
+import 'dotenv/config';
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 
 // ========== FUNCIÓN PARA LLAMAR A GEMINI ==========
-async function callGemini(prompt) {
+async function callGemini(prompt: string): Promise<string> {
     return new Promise((resolve, reject) => {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
         
@@ -55,6 +43,65 @@ async function callGemini(prompt) {
     });
 }
 
-// ========== RESTO DEL CÓDIGO ==========
-// (Mantén el resto de tus funciones: validarDatosFiscales, getOrCreateSession, etc., están correctas)
-// ... (asegúrate de pegar aquí todo el resto del código que tenías)
+// ========== FUNCIÓN DE INICIO DEL BOT DE WHATSAPP ==========
+export async function startWhatsAppBot() {
+    console.log('🤖 Iniciando conexión con WhatsApp...');
+    
+    // Carpeta donde se guardará la sesión para persistir en Railway
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update: any) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            console.log('📱 Escanea el siguiente código QR en los logs:');
+            qrcode.generate(qr, { small: true });
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('⚠️ Conexión cerrada. Reconectando...', shouldReconnect);
+            if (shouldReconnect) {
+                startWhatsAppBot();
+            }
+        } else if (connection === 'open') {
+            console.log('✅ ¡WhatsApp conectado exitosamente!');
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ messages }: any) => {
+        const m = messages[0];
+        if (!m.message || m.key.fromMe) return;
+
+        const messageType = Object.keys(m.message)[0];
+        const sender = m.key.remoteJid;
+        let textMessage = '';
+
+        if (messageType === 'conversation') {
+            textMessage = m.message.conversation;
+        } else if (messageType === 'extendedTextMessage') {
+            textMessage = m.message.extendedTextMessage.text;
+        }
+
+        if (textMessage && sender) {
+            console.log(`📩 Mensaje recibido de ${sender}: ${textMessage}`);
+            
+            const prompt = `Eres Senda Bot, un asistente virtual experto en facturación electrónica en México (SAT) y alta de comercios. Responde de forma amable, clara y concisa a la siguiente duda del usuario: "${textMessage}"`;
+            
+            try {
+                const respuestaIA = await callGemini(prompt);
+                await sock.sendMessage(sender, { text: respuestaIA });
+            } catch (error) {
+                console.error('Error al responder con IA:', error);
+                await sock.sendMessage(sender, { text: 'Lo siento, tuve un problema procesando tu mensaje.' });
+            }
+        }
+    });
+}
