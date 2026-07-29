@@ -4,7 +4,7 @@
   "description": "Plataforma Senda MVP",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc && prisma generate",
+    "build": "tsc && prisma generate && prisma migrate deploy",
     "postinstall": "prisma generate",
     "start": "node dist/index.js",
     "dev": "tsx src/index.ts",
