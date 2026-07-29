@@ -1,9 +1,11 @@
 {
   "build": {
-    "builder": "DOCKERFILE"
+    "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "node dist/index.js",
-    "healthcheckPath": "/health"
+    "startCommand": "npm start",
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 180,
+    "restartPolicyType": "ON_FAILURE"
   }
 }
