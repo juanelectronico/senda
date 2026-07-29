@@ -174,4 +174,3 @@ const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
 });
-// Actualización forzada para puerto Railway 2
