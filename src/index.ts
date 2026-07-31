@@ -4,7 +4,11 @@ import cors from 'cors';
 import path from 'path';
 import { supabase } from './config/supabase';
 import { VertexAI } from '@google-cloud/vertexai';
-import { MercadoPagoConfig, Preference } from 'mercadopago';
+import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+
+// --- IMPORTACIÓN DE NUESTROS MÓDULOS DE WHATSAPP (ATCBOT Y PAIRING) ---
+import { conectarATCSenda, enviarMensajeDesdeATC } from './services/atcBot';
+import { generarPairingCodeParaComercio } from './services/pairingService';
 
 // ============================================
 // LOGS DE DIAGNÓSTICO PARA RAILWAY
@@ -98,7 +102,7 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
         csd_cer_base64: csd_cer_base64 || '',
         csd_key_base64: csd_key_base64 || '',
         csd_password: csd_password || '',
-        is_active: true,
+        is_active: false, // Inicia inactivo hasta que se confirme el pago por Webhook
         is_premium: false,
         invoice_count: 0
       })
@@ -132,11 +136,13 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
             }
           ],
           payer: { email },
+          external_reference: data.id.toString(), // Vinculamos el ID del comercio para rastrearlo en el webhook
           back_urls: {
             success: `${baseUrl}/register.html?status=success`,
             failure: `${baseUrl}/register.html?status=failure`,
             pending: `${baseUrl}/register.html?status=pending`
-          }
+          },
+          auto_return: 'approved'
         }
       });
       initPoint = resultMP.init_point;
@@ -161,6 +167,80 @@ app.post('/api/commerce/register', async (req: any, res: any) => {
       success: false, 
       error: 'Error interno del servidor' 
     });
+  }
+});
+
+// --- ENDPOINT WEBHOOK DE MERCADO PAGO + AUTOMATIZACIÓN WHATSAPP ---
+app.post('/api/payment/webhook', async (req: any, res: any) => {
+  try {
+    const payment = req.body;
+
+    if (payment.type === 'payment' || payment.action === 'payment.created' || payment.action === 'payment.updated') {
+      const paymentId = payment.data?.id || payment.id;
+
+      if (!paymentId) {
+        return res.status(400).json({ success: false, error: 'ID de pago no encontrado' });
+      }
+
+      const paymentApi = new Payment(mpClient);
+      const paymentInfo = await paymentApi.get({ id: paymentId });
+
+      if (paymentInfo.status === 'approved') {
+        const commerceId = paymentInfo.external_reference;
+
+        if (commerceId) {
+          console.log(`✅ ¡Pago aprobado para el comercio ID: ${commerceId}! Actualizando en Supabase...`);
+
+          // 1. Actualizamos en Supabase trayendo los datos completos (teléfono y nombre)
+          const { data: commerceData, error: updateError } = await supabase
+            .from('commerce')
+            .update({ 
+              is_active: true,
+              is_premium: true 
+            })
+            .eq('id', commerceId)
+            .select()
+            .single();
+
+          if (updateError) {
+            console.error('❌ Error al actualizar el comercio en Supabase tras el pago:', updateError);
+            return res.status(500).json({ success: false, error: updateError.message });
+          }
+
+          console.log(`🚀 Comercio ${commerceId} activado exitosamente en Supabase.`);
+
+          // 2. DISPARAMOS EL PROCESO AUTOMÁTICO DE WHATSAPP (CÓDIGO DE 8 DÍGITOS VÍA ATC)
+          if (commerceData && commerceData.phone) {
+            const commercePhone = commerceData.phone;
+            const businessName = commerceData.business_name || 'Comercio';
+
+            console.log(`📱 Generando código de 8 dígitos para ${businessName} (${commercePhone})...`);
+
+            try {
+              // Generamos el pairing code de 8 dígitos de forma aislada
+              const pairingCode = await generarPairingCodeParaComercio(commercePhone);
+              console.log(`🔑 Código obtenido con éxito: ${pairingCode}`);
+
+              // Preparamos el mensaje instructivo oficial de Senda
+              const mensajeATC = `¡Hola, *${businessName}*! 🎉 Tu pago de 50 MXN en Senda ha sido confirmado con éxito.\n\nPara vincular el WhatsApp de tu negocio y empezar a operar, sigue estos pasos:\n\n1️⃣ Abre WhatsApp Business en tu teléfono\n2️⃣ Ve a **Configuración**\n3️⃣ Selecciona **Dispositivos vinculados**\n4️⃣ Toca **Vincular dispositivo** y luego **Vincular con número de teléfono**\n\nIngresa tu código de 8 dígitos:\n🔑 *${pairingCode}*`;
+
+              // Enviamos el mensaje utilizando el número ATC oficial de Senda
+              await enviarMensajeDesdeATC(commercePhone, mensajeATC);
+              console.log(`✅ ¡Mensaje con código enviado al comercio vía ATC de Senda!`);
+
+            } catch (whatsappError: any) {
+              console.error('⚠️ Advertencia: El pago se aprobó y Supabase se actualizó, pero falló el envío por WhatsApp:', whatsappError.message);
+            }
+          }
+        }
+      }
+    }
+
+    return res.status(200).json({ received: true });
+
+  } catch (error: any) {
+    console.error('❌ Error en el Webhook de Mercado Pago:', error);
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -206,7 +286,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
 });
 
-console.log('🔍 [12] Iniciando servidor...');
+console.log('🔍 [12] Iniciando servidor y conectando Bot ATC de Senda...');
 
 // --- ARRANQUE DEL SERVIDOR (CONFIGURACIÓN ESPECÍFICA PARA RAILWAY) ---
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -220,6 +300,14 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`💬 Chat-bot: POST /api/chat-bot`);
     console.log(`🔄 Proceso ID: ${process.pid}`);
     console.log('========================================');
+
+    // Inicializamos el Bot ATC de Senda en segundo plano al arrancar el servidor
+    try {
+        conectarATCSenda();
+    } catch (atcInitError) {
+        console.error('❌ Error al inicializar el Bot ATC:', atcInitError);
+    }
+
 }).on('error', (err) => {
     console.error('❌ Error al iniciar servidor:', err);
     process.exit(1);
