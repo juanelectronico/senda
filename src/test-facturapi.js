@@ -1,12 +1,14 @@
+require('dotenv').config();
 const https = require('https');
 
 const options = {
-  hostname: 'api.facturapi.io',
+  hostname: 'www.facturapi.io',
   port: 443,
   path: '/v2/products',
   method: 'GET',
   headers: {
-    'Authorization': 'Basic ' + Buffer.from('TU_API_KEY' + ':').toString('base64')
+    'Authorization': 'Bearer ' + process.env.FACTURAPI_SECRET_KEY,
+    'Content-Type': 'application/json'
   }
 };
 
