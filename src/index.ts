@@ -11,7 +11,7 @@ import { conectarATCSenda, enviarMensajeDesdeATC } from './services/atcBot';
 import { generarPairingCodeParaComercio } from './services/pairingService';
 
 // ============================================
-// LOGS DE DIAGNÓSTICO PARA RAILWAY
+// LOGS DE DIAGNÓSTICO PARA RAILWAY / CLOUD RUN
 // ============================================
 console.log('🔍 [1] Iniciando aplicación...');
 console.log('🔍 [2] NODE_ENV:', process.env.NODE_ENV || 'no definido');
@@ -266,7 +266,7 @@ app.post('/api/chat-bot', async (req: any, res: any) => {
   }
 });
 
-// --- HEALTH CHECK PARA RAILWAY (OBLIGATORIO) ---
+// --- HEALTH CHECK PARA CLOUD RUN / RAILWAY (OBLIGATORIO) ---
 app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'ok',
@@ -276,7 +276,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-// --- MANEJO DE ERRORES GLOBAL (PARA QUE RAILWAY NO SE CAIGA) ---
+// --- MANEJO DE ERRORES GLOBAL ---
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error('❌ Error global no capturado:', err);
     res.status(500).json({ 
@@ -288,10 +288,10 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 console.log('🔍 [12] Iniciando servidor y conectando Bot ATC de Senda...');
 
-// --- ARRANQUE DEL SERVIDOR (CONFIGURACIÓN ESPECÍFICA PARA RAILWAY) ---
-const PORT = parseInt(process.env.PORT || '3000', 10);
+// --- ARRANQUE DEL SERVIDOR (ADAPTADO CORRECTAMENTE PARA CLOUD RUN Y RAILWAY) ---
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 
-// Iniciar servidor escuchando en todas las interfaces
+// Iniciar servidor escuchando en 0.0.0.0 tal como exige Cloud Run
 const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
     console.log(`🚀 Senda corriendo en el puerto ${PORT}`);
@@ -301,19 +301,21 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🔄 Proceso ID: ${process.pid}`);
     console.log('========================================');
 
-    // Inicializamos el Bot ATC de Senda en segundo plano al arrancar el servidor
-    try {
-        conectarATCSenda();
-    } catch (atcInitError) {
-        console.error('❌ Error al inicializar el Bot ATC:', atcInitError);
-    }
+    // Inicializamos el Bot ATC de Senda con un pequeño retraso para asegurar que el puerto HTTP abra sin bloqueos de timeout
+    setTimeout(() => {
+        try {
+            conectarATCSenda();
+        } catch (atcInitError) {
+            console.error('❌ Error al inicializar el Bot ATC:', atcInitError);
+        }
+    }, 1000);
 
 }).on('error', (err) => {
     console.error('❌ Error al iniciar servidor:', err);
     process.exit(1);
 });
 
-// --- MANEJAR CIERRE GRACIAL PARA RAILWAY ---
+// --- MANEJAR CIERRE GRACIOSO ---
 process.on('SIGTERM', () => {
     console.log('🛑 SIGTERM recibido, cerrando servidor...');
     server.close(() => {
