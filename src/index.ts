@@ -301,14 +301,16 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`🔄 Proceso ID: ${process.pid}`);
     console.log('========================================');
 
-    // Inicializamos el Bot ATC de Senda con un pequeño retraso para asegurar que el puerto HTTP abra sin bloqueos de timeout
-    setTimeout(() => {
+    // Inicializamos el Bot ATC de Senda con un retraso de 5 segundos para que Cloud Run valide el puerto HTTP sin timeouts
+    setTimeout(async () => {
         try {
-            conectarATCSenda();
-        } catch (atcInitError) {
-            console.error('❌ Error al inicializar el Bot ATC:', atcInitError);
+            console.log('🔄 Iniciando conexión del Bot ATC de Senda en segundo plano...');
+            await conectarATCSenda();
+            console.log('✅ Bot ATC inicializado correctamente.');
+        } catch (atcInitError: any) {
+            console.error('❌ Error crítico al inicializar el Bot ATC:', atcInitError.message || atcInitError);
         }
-    }, 1000);
+    }, 5000);
 
 }).on('error', (err) => {
     console.error('❌ Error al iniciar servidor:', err);
