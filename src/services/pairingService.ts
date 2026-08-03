@@ -1,4 +1,4 @@
-import { default: makeWASocket, useMultiFileAuthState } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys';
 import path from 'path';
 
 export async function generarPairingCodeParaComercio(telefonoComercio: string): Promise<string> {
