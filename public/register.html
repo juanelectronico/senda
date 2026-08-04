@@ -69,21 +69,21 @@
             </div>
 
             <hr class="border-slate-800 my-4">
-            <h3 class="text-sm font-bold text-teal-400 uppercase tracking-wider">Credenciales CSD (SAT)</h3>
+            <h3 class="text-sm font-bold text-teal-400 uppercase tracking-wider">Credenciales CSD (SAT) *</h3>
 
             <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Certificado (.cer)</label>
-                    <input type="file" id="cer_file" class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Certificado (.cer) *</label>
+                    <input type="file" id="cer_file" required class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
                 </div>
                 <div>
-                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Llave Privada (.key)</label>
-                    <input type="file" id="key_file" class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
+                    <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Llave Privada (.key) *</label>
+                    <input type="file" id="key_file" required class="w-full text-xs text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-teal-400 hover:file:bg-slate-700">
                 </div>
             </div>
             <div>
-                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Contraseña de la Clave Privada</label>
-                <input type="password" id="csd_password" class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="••••••••">
+                <label class="block text-xs font-semibold text-slate-300 uppercase mb-1">Contraseña de la Clave Privada *</label>
+                <input type="password" id="csd_password" required class="w-full bg-slate-950 border border-slate-800 rounded-lg px-4 py-2.5 text-slate-100 focus:outline-none focus:border-teal-500" placeholder="••••••••">
             </div>
 
             <button type="submit" id="submitBtn" class="w-full mt-6 bg-gradient-to-r from-teal-500 to-emerald-600 hover:from-teal-400 hover:to-emerald-500 text-slate-950 font-bold py-3 rounded-lg transition-all shadow-lg">
@@ -124,22 +124,23 @@
         document.getElementById('registerForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
+
+            const cerFileInput = document.getElementById('cer_file').files[0];
+            const keyFileInput = document.getElementById('key_file').files[0];
+            const passwordVal = document.getElementById('csd_password').value;
+
+            // Validación estricta en el lado del cliente
+            if (!cerFileInput || !keyFileInput || !passwordVal) {
+                alert('⚠️ Los archivos .cer, .key y la contraseña del CSD son obligatorios para realizar el registro.');
+                return;
+            }
+
             btn.disabled = true;
             btn.textContent = 'Registrando comercio...';
 
             try {
-                const cerFileInput = document.getElementById('cer_file').files[0];
-                const keyFileInput = document.getElementById('key_file').files[0];
-
-                let csd_cer_base64 = '';
-                let csd_key_base64 = '';
-
-                if (cerFileInput) {
-                    csd_cer_base64 = await fileToBase64(cerFileInput);
-                }
-                if (keyFileInput) {
-                    csd_key_base64 = await fileToBase64(keyFileInput);
-                }
+                const csd_cer_base64 = await fileToBase64(cerFileInput);
+                const csd_key_base64 = await fileToBase64(keyFileInput);
 
                 const payload = {
                     rfc: document.getElementById('rfc').value,
@@ -150,7 +151,7 @@
                     email: document.getElementById('email').value,
                     csd_cer_base64: csd_cer_base64,
                     csd_key_base64: csd_key_base64,
-                    csd_password: document.getElementById('csd_password').value
+                    csd_password: passwordVal
                 };
 
                 const response = await fetch('/api/commerce/register', {

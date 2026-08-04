@@ -1,341 +1,339 @@
-// ===== PASO 1: FORZAR WEBSOCKET NATIVO ANTES DE CUALQUIER IMPORT =====
+// ===== WEBSOCKET =====
 import { WebSocket } from 'ws';
 (global as any).WebSocket = WebSocket;
 
-// ===== PASO 2: IMPORTS NORMALES =====
+// ===== IMPORTS =====
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
-import { VertexAI } from '@google-cloud/vertexai';
-import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
+import mercadopago from 'mercadopago';
 
-console.log('🔍 [1] Iniciando aplicación en Cloud Run...');
-console.log(`🔍 [2] Node.js version: ${process.version}`);
-console.log(`🔍 [3] WebSocket forzado: ${typeof (global as any).WebSocket}`);
+// ===== DIRECTORIO ACTUAL =====
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+console.log('🚀 Iniciando Senda API...');
 
 const app = express();
 
-// ===== PASO 3: MIDDLEWARE BÁSICO =====
+// ===== MIDDLEWARE =====
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use((req, res, next) => {
-    console.log(`[LOG]: Petición recibida -> ${req.method} ${req.path}`);
-    next();
-});
-
-// ===== PASO 4: STATIC FILES =====
+// ===== STATIC FILES =====
 const publicDir = path.join(process.cwd(), 'public');
 app.use(express.static(publicDir));
 
 app.get('/', (req, res) => res.redirect('/register.html'));
 app.get('/register.html', (req, res) => res.sendFile(path.join(publicDir, 'register.html')));
-app.get('/register', (req, res) => res.sendFile(path.join(publicDir, 'register.html')));
 
-// ===== PASO 5: HEALTH CHECK (CRÍTICO PARA CLOUD RUN) =====
+// ===== HEALTH CHECK =====
 app.get('/health', (req, res) => {
-    res.status(200).json({ 
+    res.json({ 
         status: 'ok',
-        message: 'Senda API funcionando correctamente',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime(),
-        websocket_support: typeof (global as any).WebSocket === 'function' ? '✅ Activo' : '❌ No disponible'
+        message: 'Senda API funcionando',
+        timestamp: new Date().toISOString()
     });
 });
 
-// ===== PASO 6: INICIALIZAR SERVICIOS (CON MANEJO DE ERRORES) =====
-const project = process.env.GOOGLE_CLOUD_PROJECT || '';
-// ✅ FORZAR us-central1 para Gemini (donde están disponibles los modelos)
-const location = 'us-central1';
-
-// Inicializar VertexAI con try-catch
-let vertexAI: VertexAI | null = null;
-let model: any = null;
+// ===== INICIALIZAR MERCADO PAGO =====
 try {
-    vertexAI = new VertexAI({ project, location });
-    // ✅ Usar ruta completa del modelo gemini-1.5-flash
-    model = vertexAI.preview.getGenerativeModel({ 
-        model: `projects/${project}/locations/us-central1/publishers/google/models/gemini-1.5-flash`
-    });
-    console.log('✅ VertexAI inicializado correctamente en región:', location);
-    console.log('✅ Modelo:', `projects/${project}/locations/us-central1/publishers/google/models/gemini-1.5-flash`);
+    const accessToken = process.env.MP_ACCESS_TOKEN;
+    if (!accessToken) {
+        console.warn('⚠️ MP_ACCESS_TOKEN no configurado');
+    } else {
+        mercadopago.configure({
+            access_token: accessToken
+        });
+        console.log('✅ MercadoPago inicializado');
+    }
 } catch (error) {
-    console.error('❌ Error inicializando VertexAI:', error);
+    console.error('❌ Error MercadoPago:', error);
 }
 
-// Inicializar MercadoPago
-const mpClient = new MercadoPagoConfig({ 
-    accessToken: process.env.MP_ACCESS_TOKEN || '' 
-});
+// ===== INICIALIZAR SUPABASE =====
+let supabase: any = null;
 
-// ===== PASO 7: RUTAS API =====
-app.post('/api/chat-bot', async (req: any, res: any) => {
+async function initSupabase() {
     try {
-        const { mensaje } = req.body;
-        if (!mensaje) {
-            return res.status(400).json({ respuesta: 'Por favor, escribe un mensaje.' });
+        const module = await import('./config/supabase.js');
+        supabase = module.supabase;
+        console.log('✅ Supabase inicializado');
+        return true;
+    } catch (error) {
+        console.error('❌ Error Supabase:', error);
+        return false;
+    }
+}
+
+// Iniciar Supabase
+await initSupabase();
+
+// ===== VALIDACIÓN DE CERTIFICADOS SAT =====
+function validarSAT(cer: string, key: string, pass: string): { valid: boolean; errors: string[] } {
+    const errors: string[] = [];
+
+    if (!cer || cer.length < 10) errors.push('El .cer es obligatorio');
+    if (!key || key.length < 10) errors.push('El .key es obligatorio');
+    if (!pass || pass.length < 2) errors.push('La contraseña es obligatoria');
+
+    return { valid: errors.length === 0, errors };
+}
+
+// ===== RUTA DE REGISTRO =====
+app.post('/api/commerce/register', async (req: any, res: any) => {
+    try {
+        console.log('📝 Registro de comercio');
+        
+        const { 
+            rfc, business_name, tax_regime, zip_code, phone, email,
+            csd_cer_base64, csd_key_base64, csd_password 
+        } = req.body;
+
+        // Validar campos obligatorios
+        if (!rfc || !business_name || !tax_regime || !zip_code || !phone || !email) {
+            return res.status(400).json({
+                success: false,
+                error: 'Faltan campos obligatorios'
+            });
         }
+
+        // VALIDACIÓN ESTRICTA DE CERTIFICADOS SAT
+        console.log('🔍 Validando certificados SAT...');
+        const satValidation = validarSAT(csd_cer_base64, csd_key_base64, csd_password);
         
-        if (!model) {
-            return res.status(503).json({ respuesta: 'Servicio de IA no disponible temporalmente.' });
+        if (!satValidation.valid) {
+            console.warn('❌ Error SAT:', satValidation.errors);
+            return res.status(400).json({
+                success: false,
+                error: 'Certificados SAT inválidos',
+                details: satValidation.errors
+            });
         }
-        
-        const chatResult = await model.generateContent(
-            `Eres Senda Bot, asistente virtual de facturación SAT. Responde a: "${mensaje}"`
-        );
-        const responseText = chatResult.response?.candidates?.[0]?.content?.parts?.[0]?.text 
-            || 'No pude generar una respuesta.';
-        
-        return res.json({ respuesta: responseText });
+        console.log('✅ Certificados SAT válidos');
+
+        // Verificar Supabase
+        if (!supabase) {
+            await initSupabase();
+            if (!supabase) {
+                return res.status(503).json({
+                    success: false,
+                    error: 'Base de datos no disponible'
+                });
+            }
+        }
+
+        // Verificar MercadoPago
+        if (!process.env.MP_ACCESS_TOKEN) {
+            return res.status(503).json({
+                success: false,
+                error: 'Servicio de pagos no disponible'
+            });
+        }
+
+        // Guardar en Supabase
+        console.log('💾 Guardando en Supabase...');
+        const { data, error } = await supabase
+            .from('commerce')
+            .insert({
+                rfc,
+                business_name,
+                tax_regime,
+                zip_code,
+                phone,
+                email,
+                csd_cer_base64,
+                csd_key_base64,
+                csd_password,
+                is_active: false,
+                is_premium: false,
+                invoice_count: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
+            .select()
+            .single();
+
+        if (error) {
+            console.error('❌ Error Supabase:', error);
+            return res.status(500).json({
+                success: false,
+                error: 'Error al guardar en base de datos',
+                details: error.message
+            });
+        }
+
+        console.log('✅ Comercio registrado ID:', data.id);
+
+        // Generar preferencia de pago
+        console.log('🔄 Generando preferencia de pago...');
+        let initPoint = null;
+
+        try {
+            const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
+            const host = req.get('host') || 'localhost:8080';
+            const baseUrl = `${protocol}://${host}`;
+
+            const preference = {
+                items: [{
+                    id: 'senda_register_001',
+                    title: 'Registro Senda - Facturación SAT',
+                    description: 'Activación de cuenta Senda',
+                    quantity: 1,
+                    unit_price: 50.00,
+                    currency_id: 'MXN'
+                }],
+                payer: {
+                    email: email,
+                    name: business_name
+                },
+                external_reference: data.id.toString(),
+                back_urls: {
+                    success: `${baseUrl}/payment/success`,
+                    failure: `${baseUrl}/payment/failure`,
+                    pending: `${baseUrl}/payment/pending`
+                },
+                // auto_return: 'approved',  // COMENTADO - CAUSABA ERROR
+                notification_url: `${baseUrl}/api/payment/webhook`
+            };
+
+            const result = await mercadopago.preferences.create(preference);
+            initPoint = result.body.init_point;
+            
+            console.log('✅ Preferencia creada:', result.body.id);
+            console.log('🔗 Link de pago:', initPoint);
+
+        } catch (mpError: any) {
+            console.error('❌ Error MercadoPago:', mpError);
+
+            return res.status(500).json({
+                success: false,
+                error: 'No se pudo generar el link de pago',
+                details: mpError.message
+            });
+        }
+
+        // Respuesta exitosa
+        return res.json({
+            success: true,
+            message: '✅ Registro exitoso. Procede al pago.',
+            init_point: initPoint,
+            commerce: {
+                id: data.id,
+                business_name: data.business_name,
+                email: data.email,
+                phone: data.phone
+            }
+        });
+
     } catch (error: any) {
-        console.error('Error en chat-bot:', error);
-        return res.status(500).json({ respuesta: 'Error procesando tu consulta.' });
+        console.error('❌ Error general:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Error interno del servidor'
+        });
     }
 });
 
-// ===== PASO 8: CONFIGURACIÓN PUERTO =====
-const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
+// ===== WEBHOOK DE MERCADO PAGO =====
+app.post('/api/payment/webhook', async (req: any, res: any) => {
+    try {
+        console.log('📡 Webhook recibido');
+        
+        const { type, data, action } = req.body;
 
-// ===== PASO 9: INICIAR SERVIDOR (INMEDIATAMENTE) =====
-const server = app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log('========================================');
-    console.log(`🚀 Senda corriendo de inmediato en el puerto ${PORT}`);
-    console.log(`🌐 Health check: http://localhost:${PORT}/health`);
-    console.log('========================================');
-
-    // ===== PASO 10: CARGAR SUPABASE EN SEGUNDO PLANO =====
-    setTimeout(async () => {
-        try {
-            console.log('🔄 [Background] Cargando módulos de Supabase...');
+        if (type === 'payment' || action === 'payment.updated') {
+            const paymentId = data?.id || req.body.id;
             
-            // Importar Supabase con manejo de errores
-            let supabase;
-            try {
-                const supabaseModule = await import('./config/supabase');
-                supabase = supabaseModule.supabase;
-                console.log('✅ [Background] Supabase cargado correctamente');
-            } catch (supabaseError: any) {
-                console.error('❌ [Background] Error cargando Supabase:', supabaseError.message);
-                // No detenemos el servidor, solo registramos el error
-                return;
+            if (!paymentId) {
+                return res.status(200).json({ received: true });
             }
 
-            // ===== PASO 11: CONECTAR BOT ATC =====
-            try {
-                const { conectarATCSenda } = await import('./services/atcBot');
-                console.log('🔌 [Background] Intentando conectar Bot ATC...');
-                await conectarATCSenda();
-                console.log('✅ [Background] Bot ATC conectado');
-            } catch (waError: any) {
-                console.warn('⚠️ [Background] No se pudo iniciar bot WhatsApp:', waError.message);
-                // No detenemos el servidor
-            }
+            const paymentInfo = await mercadopago.payment.get(paymentId);
 
-            // ===== PASO 12: IMPORTAR SERVICIOS ADICIONALES =====
-            let generarPairingCodeParaComercio: any = null;
-            let enviarMensajeDesdeATC: any = null;
-            
-            try {
-                const pairingService = await import('./services/pairingService');
-                generarPairingCodeParaComercio = pairingService.generarPairingCodeParaComercio;
-            } catch (error) {
-                console.warn('⚠️ [Background] No se pudo cargar pairingService');
-            }
+            console.log(`💰 Pago ${paymentId}: ${paymentInfo.body.status}`);
 
-            try {
-                const atcBot = await import('./services/atcBot');
-                enviarMensajeDesdeATC = atcBot.enviarMensajeDesdeATC;
-            } catch (error) {
-                console.warn('⚠️ [Background] No se pudo cargar atcBot para mensajes');
-            }
-
-            // ===== PASO 13: RUTA /api/commerce/register =====
-            app.post('/api/commerce/register', async (req: any, res: any) => {
-                try {
-                    const { 
-                        rfc, 
-                        business_name, 
-                        tax_regime, 
-                        zip_code, 
-                        phone, 
-                        email, 
-                        csd_cer_base64, 
-                        csd_key_base64, 
-                        csd_password 
-                    } = req.body;
-
-                    if (!rfc || !business_name || !tax_regime || !zip_code || !phone || !email) {
-                        return res.status(400).json({ 
-                            success: false, 
-                            error: 'Faltan campos requeridos' 
-                        });
-                    }
-
-                    if (!supabase) {
-                        return res.status(503).json({ 
-                            success: false, 
-                            error: 'Servicio de base de datos no disponible' 
-                        });
-                    }
-
-                    const { data, error } = await supabase.from('commerce').insert({
-                        rfc, 
-                        business_name, 
-                        tax_regime, 
-                        zip_code, 
-                        phone, 
-                        email,
-                        csd_cer_base64: csd_cer_base64 || '',
-                        csd_key_base64: csd_key_base64 || '',
-                        csd_password: csd_password || '',
-                        is_active: false, 
-                        is_premium: false, 
-                        invoice_count: 0
-                    }).select().single();
-
-                    if (error) {
-                        return res.status(500).json({ success: false, error: error.message });
-                    }
-
-                    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
-                    const host = req.get('host');
-                    const baseUrl = `${protocol}://${host}`;
-
-                    let initPoint = null;
-                    try {
-                        const preference = new Preference(mpClient);
-                        const resultMP = await preference.create({
-                            body: {
-                                items: [{
-                                    id: 'subscription_alta_senda',
-                                    title: 'Alta de Comercio y Suscripción Senda',
-                                    quantity: 1,
-                                    unit_price: 50.00,
-                                    currency_id: 'MXN'
-                                }],
-                                payer: { email },
-                                external_reference: data.id.toString(),
-                                back_urls: {
-                                    success: `${baseUrl}/register.html?status=success`,
-                                    failure: `${baseUrl}/register.html?status=failure`,
-                                    pending: `${baseUrl}/register.html?status=pending`
-                                },
-                                auto_return: 'approved'
-                            }
-                        });
-                        initPoint = resultMP.init_point;
-                    } catch (mpError: any) {
-                        console.error('Error en Mercado Pago:', mpError.message);
-                    }
-
-                    return res.json({ 
-                        success: true, 
-                        message: '✅ ¡Registro exitoso!', 
-                        init_point: initPoint, 
-                        commerce: { 
-                            id: data.id, 
-                            business_name: data.business_name, 
-                            phone: data.phone 
-                        } 
-                    });
-                } catch (error: any) {
-                    console.error('Error en /api/commerce/register:', error);
-                    return res.status(500).json({ 
-                        success: false, 
-                        error: 'Error interno del servidor' 
-                    });
-                }
-            });
-
-            // ===== PASO 14: RUTA /api/payment/webhook =====
-            app.post('/api/payment/webhook', async (req: any, res: any) => {
-                try {
-                    const payment = req.body;
+            if (paymentInfo.body.status === 'approved' && supabase) {
+                const commerceId = paymentInfo.body.external_reference;
+                
+                if (commerceId) {
+                    await supabase
+                        .from('commerce')
+                        .update({
+                            is_active: true,
+                            is_premium: true,
+                            updated_at: new Date().toISOString()
+                        })
+                        .eq('id', commerceId);
                     
-                    if (payment.type === 'payment' || 
-                        payment.action === 'payment.created' || 
-                        payment.action === 'payment.updated') {
-                        
-                        const paymentId = payment.data?.id || payment.id;
-                        if (!paymentId) {
-                            return res.status(400).json({ success: false, error: 'ID no encontrado' });
-                        }
-
-                        const paymentApi = new Payment(mpClient);
-                        const paymentInfo = await paymentApi.get({ id: paymentId });
-
-                        if (paymentInfo.status === 'approved') {
-                            const commerceId = paymentInfo.external_reference;
-                            if (commerceId && supabase) {
-                                const { data: commerceData, error: updateError } = await supabase
-                                    .from('commerce')
-                                    .update({ is_active: true, is_premium: true })
-                                    .eq('id', commerceId)
-                                    .select()
-                                    .single();
-
-                                if (updateError) {
-                                    console.error('Error actualizando commerce:', updateError);
-                                    return res.status(500).json({ success: false, error: updateError.message });
-                                }
-
-                                if (commerceData && commerceData.phone && 
-                                    generarPairingCodeParaComercio && 
-                                    enviarMensajeDesdeATC) {
-                                    try {
-                                        const pairingCode = await generarPairingCodeParaComercio(commerceData.phone);
-                                        const mensajeATC = `¡Hola, *${commerceData.business_name}*! Tu pago ha sido confirmado. Ingresa tu código de 8 dígitos para vincular WhatsApp:\n🔑 *${pairingCode}*`;
-                                        await enviarMensajeDesdeATC(commerceData.phone, mensajeATC);
-                                    } catch (msgErr) {
-                                        console.error('No se pudo enviar WhatsApp tras pago:', msgErr);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    return res.status(200).json({ received: true });
-                } catch (error: any) {
-                    console.error('Error en webhook:', error);
-                    return res.status(500).json({ success: false, error: error.message });
+                    console.log(`✅ Pago aprobado para comercio ${commerceId}`);
                 }
-            });
-
-            console.log('✅ [Background] Todas las rutas cargadas correctamente');
-
-        } catch (initError: any) {
-            console.error('❌ [Background] Error general:', initError);
-            console.error('❌ [Background] Stack:', initError.stack);
+            }
         }
-    }, 1000); // Delay de 1 segundo para no bloquear el puerto
+
+        res.status(200).json({ received: true });
+    } catch (error) {
+        console.error('❌ Webhook error:', error);
+        res.status(200).json({ received: true });
+    }
 });
 
-// ===== PASO 15: MANEJO DE ERRORES DEL SERVIDOR =====
-server.on('error', (err) => {
-    console.error('❌ Error de servidor HTTP:', err);
-    process.exit(1);
+// ===== PÁGINAS DE PAGO =====
+app.get('/payment/success', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Pago Exitoso</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1 style="color: green;">✅ Pago Exitoso</h1>
+            <p>Tu cuenta ha sido activada correctamente.</p>
+            <a href="/register.html">Volver al inicio</a>
+        </body>
+        </html>
+    `);
 });
 
-server.on('listening', () => {
-    console.log('✅ Servidor escuchando en 0.0.0.0:' + PORT);
+app.get('/payment/failure', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Pago Fallido</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1 style="color: red;">❌ Pago Fallido</h1>
+            <p>Hubo un problema con tu pago. Intenta nuevamente.</p>
+            <a href="/register.html">Volver al inicio</a>
+        </body>
+        </html>
+    `);
 });
 
-// ===== PASO 16: MANEJO DE SEÑALES DE TERMINACIÓN =====
-process.on('SIGTERM', () => {
-    console.log('🛑 Recibido SIGTERM, cerrando servidor...');
-    server.close(() => {
-        console.log('✅ Servidor cerrado correctamente');
-        process.exit(0);
-    });
+app.get('/payment/pending', (req, res) => {
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head><title>Pago Pendiente</title></head>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+            <h1 style="color: orange;">⏳ Pago Pendiente</h1>
+            <p>Tu pago está siendo procesado.</p>
+            <a href="/register.html">Volver al inicio</a>
+        </body>
+        </html>
+    `);
 });
 
-process.on('SIGINT', () => {
-    console.log('🛑 Recibido SIGINT, cerrando servidor...');
-    server.close(() => {
-        console.log('✅ Servidor cerrado correctamente');
-        process.exit(0);
-    });
+// ===== INICIAR SERVIDOR =====
+const PORT = parseInt(process.env.PORT || '8080', 10);
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log('========================================');
+    console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
+    console.log(`🌐 Health: http://localhost:${PORT}/health`);
+    console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
+    console.log('========================================');
 });
 
 export default app;
