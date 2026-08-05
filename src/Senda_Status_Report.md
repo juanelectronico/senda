@@ -497,3 +497,77 @@ Consulta de estado vía Chatbot	✅ Exitoso (El bot distingue entre estados prem
 ✅ Seguridad del código: Respeto absoluto a la lógica de IA desarrollada manteniendo el motor blindado.
 
 Reporte actualizado y generado por: Asistente de Desarrollo Senda
+
+
+Resumen Ejecutivo
+Senda ha superado la etapa de infraestructura crítica. El servidor index.ts es estable, el Webhook de Mercado Pago recibe notificaciones, y el bot de WhatsApp (whatsapp-bot-final.js) ya identifica dinámicamente a los comercios consultando Supabase por número de teléfono. El motor de IA (Gemini 1.5 Flash) está intacto y funcionando para la extracción y validación de datos fiscales.
+
+Logro más importante: Integración quirúrgica de la validación de comercios por base de datos en el bot, conservando al 100% el flujo del chatbot y preparando la infraestructura para el timbrado fiscal.
+
+✅ 1. Componentes Completados y Funcionales
+1.1 Backend, Webhooks y Servicios
+Componente	Tecnología / Librería	Estado	Notas
+Servidor Principal	Node.js + Express	✅ Estable	Corre en puerto 3000 con npm run dev
+Motor de IA	Vertex AI (Gemini 1.5 Flash)	✅ Estable / 🔒 Intocable	Configurado para extracción y validación fiscal.
+Webhook Pagos	Mercado Pago Checkout Pro	✅ Configurado	Recibe notificaciones y filtra simulaciones de pagos reales.
+Middleware	Cors, Express JSON	✅ Funcionando	Configurado para recibir datos pesados (10mb).
+Archivos Estáticos	Express public	✅ Funcionando	Sirve register.html, LOGO.png y HERO.jpeg.
+Rutas API	/api/commerce/register	✅ Funcionando	Registra comercios y guarda certificados en Supabase.
+1.2 Bot de WhatsApp (Baileys)
+Componente	Estado	Notas
+Conexión	✅ Operativa	Escaneo de QR funcional.
+Validación Dinámica	✅ Implementado	El bot consulta la tabla commerce usando el número de teléfono como llave única.
+Procesamiento de Comandos	✅ Estructurado	Reconocimiento de CONFIRMAR / RECHAZAR para el flujo del comercio.
+Motor de Extracción (Gemini)	🔒 Intocable	Lógica 100% respetada del análisis de datos del cliente.
+1.3 Base de Datos (Supabase)
+Tabla	Propósito	Estado
+commerce	Datos fiscales, certificados y estados de cuenta	✅ Creada y operativa
+invoice	Historial de facturas generadas	✅ Existente
+ChatSession	Almacenamiento de estados de conversación	✅ Existente
+Lógica de negocio:	Restricción implementada entre facturas gratuitas (invoice_count) y plan premium (is_premium).	✅ Implementada
+🚧 2. Pendientes Críticos para Concluir (Hoja de Ruta Inmediata)
+Estos son los pasos exactos que debemos implementar en la próxima sesión. Están ordenados por prioridad:
+
+🔴 Prioridad Alta (Esencial para el MVP)
+Integración con Facturapi (Timbrado Fiscal):
+Conectar el paso final del flujo cuando el comercio envía el comando CONFIRMAR. El bot debe llamar a la API de Facturapi para generar el CFDI (PDF y XML).
+
+Envío Automático del CFDI al Cliente:
+Programar la lógica para que, tras el timbrado exitoso, el sistema envíe automáticamente el PDF/XML al correo electrónico del cliente y notifique el cierre del proceso tanto al cliente como al comercio.
+
+Generación de Link de Pago (Beta):
+Finalizar el endpoint /api/payment/create-preference para que, cuando un comercio se quede sin facturas, el bot pueda enviarle el link de pago de 50 MXN para reactivar el plan.
+
+🟡 Prioridad Media (Optimizaciones y Flujo)
+Automatización del Monto de Venta (El flujo sin fricción):
+Ajustar el cruce en Supabase para que el monto a facturar no lo escriba el cliente, sino que provenga de la venta ingresada por el comercio en su sistema interno.
+
+Validación de Formatos Telefónicos:
+Asegurar que el número con el que se registra el comercio en la web (register.html) coincida de forma estricta (sin espacios ni caracteres especiales) con el formato que lee el bot de WhatsApp para una identificación impecable.
+
+🔧 3. Configuración Técnica Actualizada
+Entorno de ejecución: Servidor Express en Node.js (puerto 3000) con npm run dev (usando ts-node).
+
+Librerías clave: @whiskeysockets/baileys, mercadopago, @google-cloud/vertexai, express, cors, dotenv, ws.
+
+Seguridad y Blindaje: El código del motor de Gemini está protegido y se ha respetado quirúrgicamente para no romper la extracción de datos del cliente.
+
+Colores Institucionales: Turquesa #19C0D4 y Verde #5AB740.
+
+🧪 4. Pruebas Realizadas y Validadas
+Prueba	Resultado
+Registro de comercio vía Web (Register)	✅ Éxito (Datos guardados en Supabase).
+Registro de comercio vía API	✅ Éxito (Validación de esquemas correcta).
+Conexión Webhook de Mercado Pago	✅ Éxito (Detección de ID y filtro de simulaciones).
+Validación de remitente comercial en WhatsApp	✅ Éxito (Consulta dinámica a Supabase por teléfono).
+Consulta de estado del comercio vía Chatbot	✅ Éxito (El bot distingue entre activo, premium y contador de facturas).
+Diseño del Hero con Parallax	✅ Funcionando (Visualmente aprobado).
+🏁 5. Estado de la Filosofía Senda (Checklist)
+✅ Sin fricción: El comercio administra y confirma facturas directamente desde su WhatsApp.
+✅ Sin captura manual: Gemini valida los datos fiscales en tiempo real.
+✅ Sin esperas: El flujo cliente-bot-comercio está diseñado para resolverse en minutos.
+✅ Seguridad del código: El motor de IA ha sido respetado al 100%, sin alteraciones en su lógica.
+
+Reporte generado y unificado por: Asistente de Desarrollo Senda.
+Acción para retomar esta noche: Copiar y pegar este documento en el chat y decir: "Retomamos desde el Reporte Maestro. Vamos a por la Prioridad Alta (Facturapi)".
+

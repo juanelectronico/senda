@@ -66,7 +66,7 @@ export async function startWhatsAppBot() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error as Boom)?.output?.statusCode !== DisconnectReason.loggedOut;
+            const shouldReconnect = true;
             console.log('⚠️ Conexión cerrada. Reconectando...', shouldReconnect);
             if (shouldReconnect) {
                 startWhatsAppBot();
