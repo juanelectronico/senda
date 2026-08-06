@@ -1,33 +1,28 @@
-// whatsapp-bot-final.cjs - VERSIÓN CORREGIDA (LID FIX)
+// whatsapp-bot-final.cjs - CÓDIGO COMPLETO PARA COMERCIOS
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCodeTerminal = require('qrcode-terminal');
 const QRCodeImage = require('qrcode');
 const express = require('express');
 const http = require('http');
-const path = require('path');
-const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
-// ===== PARCHE DE EMERGENCIA PARA BAILEYS =====
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const EventEmitter = require('events');
-EventEmitter.defaultMaxListeners = 20;
+EventEmitter.defaultMaxListeners = 30;
 
-// ===== CONFIGURACIÓN =====
 const PORT = 3001;
 const app = express();
 const server = http.createServer(app);
 
-// ===== SUPABASE & GEMINI =====
 require('dotenv').config();
 
-console.log("=== DIAGNÓSTICO ===");
+console.log("=== DIAGNÓSTICO SENDA (BOT DE COMERCIO) ===");
 console.log("SUPABASE_URL:", process.env.SUPABASE_URL || "❌ No encontrada");
 console.log("SUPABASE_KEY existe:", process.env.SUPABASE_KEY ? "✅ Sí" : "❌ No");
 console.log("GEMINI_API_KEY existe:", process.env.GEMINI_API_KEY ? "✅ Sí" : "❌ No");
-console.log("====================");
+console.log("==========================================");
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
     console.error('❌ ERROR CRÍTICO: Faltan SUPABASE_URL o SUPABASE_KEY en el archivo .env');
@@ -39,11 +34,9 @@ const supabase = createClient(
     process.env.SUPABASE_KEY
 );
 
-// 🔥 CORRECCIÓN: Modelo Gemini actualizado
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// ===== VARIABLES GLOBALES =====
 let sock = null;
 let qrCode = null;
 let isConnected = false;
@@ -51,11 +44,9 @@ let reconnectTimer = null;
 let isReconnecting = false;
 let messageQueue = [];
 
-// ===== RATE LIMITING =====
 const userMessageCooldown = new Map();
 const COOLDOWN_MS = 3000;
 
-// ===== SERVIDOR EXPRESS =====
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -79,22 +70,17 @@ app.get('/status', (req, res) => {
     res.json({ 
         connected: isConnected, 
         ready: sock !== null,
-        reconnectAttempts: isReconnecting ? 1 : 0,
+        botPhone: sock?.user?.id ? cleanPhoneNumber(sock.user.id.split(':')[0]) : null,
         queueSize: messageQueue.length
     });
 });
 
 server.listen(PORT, () => {
-    console.log(`🚀 API en http://localhost:${PORT}`);
+    console.log(`🚀 API del Bot en http://localhost:${PORT}`);
 });
 
-// ===== FUNCIÓN DE RECONEXIÓN CONTROLADA =====
 async function reconnectBot() {
-    if (isReconnecting) {
-        console.log('⚠️ Ya hay un intento de reconexión en curso');
-        return;
-    }
-    
+    if (isReconnecting) return;
     isReconnecting = true;
     console.log('🔄 Intentando reconexión en 5 segundos...');
     
@@ -115,150 +101,79 @@ async function reconnectBot() {
     }, 5000);
 }
 
-// ===== FUNCIÓN PARA LIMPIAR NÚMERO DE TELÉFONO (CORREGIDA) =====
 function cleanPhoneNumber(phone) {
     if (!phone) return null;
-    
-    // Caso especial: si es un LID (ej: 266202609922144@lid)
-    if (phone.includes('@lid')) {
-        // Extraer solo los números del LID
-        const numbers = phone.replace(/@lid.*$/, '').replace(/\D/g, '');
-        // Si el LID tiene 15 dígitos, probablemente es un número de teléfono
-        if (numbers.length === 15) {
-            // Los LIDs de WhatsApp suelen tener el formato: código país + número
-            // Ej: 266202609922144 -> 52 656 092 2144
-            return numbers;
-        }
-        return numbers;
-    }
-    
-    // Eliminar @s.whatsapp.net, @g.us, etc.
-    let cleaned = phone.replace(/@.*$/, '');
-    
-    // Eliminar cualquier caracter no numérico
-    cleaned = cleaned.replace(/\D/g, '');
-    
-    // Si tiene 10 dígitos, agregar código país 52 (México)
-    if (cleaned.length === 10) {
-        cleaned = '52' + cleaned;
-    }
-    
-    return cleaned;
+    let raw = String(phone).replace(/\D/g, '');
+    if (raw.length === 10) return '52' + raw;
+    if (raw.length === 12) return raw;
+    if (raw.length === 13 && raw.startsWith('521')) return '52' + raw.substring(3);
+    return raw;
 }
 
-// ===== FUNCIÓN PARA OBTENER EL NÚMERO REAL DEL USUARIO =====
-function getRealUserPhone(from) {
+// Función actualizada para manejar tanto números normales como IDs internos (LID)
+function getRealUserPhone(from, msg = null) {
     if (!from) return null;
-    
-    // Si es un LID (ej: 266202609922144@lid)
-    if (from.includes('@lid')) {
-        // Extraer los números
-        const numbers = from.replace(/@lid.*$/, '').replace(/\D/g, '');
-        // Si tiene 15 dígitos, formatear como número de teléfono
-        if (numbers.length === 15) {
-            // Intentar extraer el número real (los últimos 10 dígitos suelen ser el número)
-            // Pero mejor, devolvemos el LID limpio para que se use como identificador
-            return numbers;
-        }
-        return numbers;
+    if (from.includes('@g.us') || from.includes('@broadcast')) {
+        return null;
     }
-    
-    // Si es un número normal
-    return cleanPhoneNumber(from);
+
+    let raw = from.replace(/@.*$/, '').replace(/\D/g, '');
+
+    // Si es un número tradicional de teléfono válido
+    if (raw.length >= 10 && raw.length <= 13) {
+        return cleanPhoneNumber(raw);
+    }
+
+    // Si es un identificador LID interno de WhatsApp (números largos de 14+ dígitos)
+    if (raw.length > 13) {
+        return from; // Devolvemos el identificador completo para garantizar la comunicación con el chat
+    }
+
+    return raw;
 }
 
-// ===== FUNCIÓN PARA VERIFICAR/CREAR CHAT =====
-async function ensureChatExists(jid) {
-    try {
-        await sock.presenceSubscribe(jid);
-        await new Promise(resolve => setTimeout(resolve, 500));
-        return true;
-    } catch (error) {
-        console.log(`⚠️ Creando chat para ${jid}...`);
-        try {
-            await sock.sendMessage(jid, { text: ' ' });
-            await new Promise(resolve => setTimeout(resolve, 1000));
-            return true;
-        } catch (e) {
-            console.log(`⚠️ No se pudo crear el chat: ${e.message}`);
-            return false;
-        }
-    }
-}
-
-// ===== FUNCIÓN PARA ENVIAR MENSAJES CON REINTENTOS =====
 async function sendMessageWithRetry(to, text, retries = 3) {
     let attempt = 0;
-    let lastError = null;
-    
     while (attempt < retries) {
         try {
             if (!sock) {
-                console.error('❌ Socket no disponible');
                 messageQueue.push({ to, text, retries: 3 });
                 return false;
             }
             
-            // Limpiar el número de destino
-            let cleanTo = cleanPhoneNumber(to);
-            if (!cleanTo) {
-                console.error('❌ Número inválido:', to);
-                return false;
+            // Si 'to' es un identificador LID o JID completo, lo usamos tal cual; si es número de 10 dígitos, le añadimos @s.whatsapp.net
+            let jid = to;
+            if (!to.includes('@')) {
+                let cleanTo = cleanPhoneNumber(to);
+                if (!cleanTo) return false;
+                jid = `${cleanTo}@s.whatsapp.net`;
             }
             
-            // Si el número parece ser un LID (15 dígitos), intentar extraer el número real
-            if (cleanTo.length === 15 && cleanTo.startsWith('266')) {
-                // Este es un LID, intentar obtener el número real
-                // En este caso, el número real es 525643652322
-                console.log(`⚠️ Detectado LID: ${cleanTo}, intentando usar número real...`);
-                // Usar el número de prueba (tu número)
-                cleanTo = '525643652322';
-            }
-            
-            const jid = `${cleanTo}@s.whatsapp.net`;
-            
-            await ensureChatExists(jid);
-            
-            await sock.sendMessage(jid, { 
-                text: text,
-                ephemeralExpiration: 0
-            });
-            
-            console.log(`✅ Mensaje enviado a ${cleanTo}`);
+            await sock.sendMessage(jid, { text: text });
+            console.log(`✅ Mensaje enviado exitosamente a ${to}`);
             return true;
-            
         } catch (error) {
             attempt++;
-            lastError = error;
-            console.error(`⚠️ Intento ${attempt}/${retries} falló para ${to}:`, error.message);
-            
+            console.error(`⚠️ Intento ${attempt} fallido al enviar mensaje a ${to}:`, error.message);
             if (attempt < retries) {
-                const waitTime = attempt * 2000;
-                await new Promise(resolve => setTimeout(resolve, waitTime));
+                await new Promise(resolve => setTimeout(resolve, attempt * 1500));
             }
         }
     }
-    
-    console.error(`❌ Falló después de ${retries} intentos para ${to}:`, lastError?.message);
     messageQueue.push({ to, text, retries: 3 });
     return false;
 }
 
-// ===== PROCESAR COLA DE MENSAJES =====
 setInterval(async () => {
     if (messageQueue.length === 0 || !sock) return;
-    
-    console.log(`🔄 Procesando cola de mensajes (${messageQueue.length} pendientes)`);
-    
     const batch = messageQueue.splice(0, 5);
     for (const msg of batch) {
         await sendMessageWithRetry(msg.to, msg.text, 2);
     }
 }, 10000);
 
-// ===== FUNCIÓN PRINCIPAL =====
 async function startBot() {
-    console.log('🤖 Iniciando bot de WhatsApp con Gemini...');
+    console.log('🤖 Iniciando bot de WhatsApp para el Comercio...');
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState('sessions');
@@ -271,23 +186,26 @@ async function startBot() {
             markOnlineOnConnect: false,
             syncFullHistory: false,
             shouldSyncHistoryMessage: () => false,
-            connectTimeoutMs: 120000,
+            connectTimeoutMs: 60000,
             qrTimeout: 60000,
             retryRequestDelayMs: 500,
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 10000,
-            patchMessageBeforeSending: (msg) => msg,
-            getMessage: async (key) => {
-                return { conversation: 'Hola' };
-            }
+            getMessage: async () => ({ conversation: 'Hola' })
         });
+
+        if (sock.ws) {
+            sock.ws.on('error', (err) => {
+                if (err?.message?.includes('Timed Out')) {
+                    console.log('⚠️ [Aviso] Timeout menor en socket ignorado.');
+                }
+            });
+        }
 
         sock.ev.on('connection.update', async (update) => {
             const { connection, lastDisconnect, qr } = update;
 
             if (qr) {
                 qrCode = qr;
-                console.log('📱 Escanea el código QR con WhatsApp:');
+                console.log('📱 Escanea el código QR con el WhatsApp del COMERCIO:');
                 QRCodeTerminal.generate(qr, { small: true }); 
                 console.log('💡 Ver QR como imagen en: http://localhost:3001/qr');
             }
@@ -296,45 +214,22 @@ async function startBot() {
                 isConnected = true;
                 qrCode = null;
                 isReconnecting = false;
-                console.log('✅ WhatsApp conectado exitosamente!');
-                console.log('📱 Bot listo para recibir mensajes');
-                
-                if (messageQueue.length > 0) {
-                    console.log(`🔄 Procesando ${messageQueue.length} mensajes pendientes...`);
-                }
+                const botNumber = sock.user?.id ? cleanPhoneNumber(sock.user.id.split(':')[0]) : 'Desconocido';
+                console.log(`✅ WhatsApp del Comercio conectado exitosamente! (Número: ${botNumber})`);
             }
 
             if (connection === 'close') {
                 isConnected = false;
                 const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`📴 Conexión cerrada. Código: ${statusCode}`);
-                
-                if (shouldReconnect) {
+                if (statusCode !== DisconnectReason.loggedOut) {
                     await reconnectBot();
                 } else {
-                    console.log('❌ Sesión cerrada permanentemente. Borra la carpeta "sessions" y escanea el QR nuevamente.');
+                    console.log('❌ Sesión cerrada. Borra la carpeta "sessions" y escanea el QR del comercio nuevamente.');
                 }
             }
         });
 
         sock.ev.on('creds.update', saveCreds);
-
-        // ===== MONITOREO DE ENTREGA =====
-        sock.ev.on('messages.update', async (updates) => {
-            for (const update of updates) {
-                if (update.key && update.status) {
-                    const jid = update.key.remoteJid;
-                    const status = update.status;
-                    
-                    if (status === 'delivery') {
-                        console.log(`✅ Mensaje entregado a ${jid}`);
-                    } else if (status === 'read') {
-                        console.log(`👁️ Mensaje leído por ${jid}`);
-                    }
-                }
-            }
-        });
 
         sock.ev.on('messages.upsert', async (msgUpdate) => {
             try {
@@ -346,59 +241,33 @@ async function startBot() {
                     if (msg.key.fromMe) continue;
                     
                     const from = msg.key.remoteJid;
-                    if (!from) continue;
-                    
-                    const isGroup = from.includes('@g.us');
-                    const isBroadcast = from.includes('@broadcast');
-                    
-                    if (isBroadcast) continue;
-                    
-                    if (isGroup) {
-                        const mentioned = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
-                        const isMentioned = mentioned.includes(sock.user?.id) || 
-                                           msg.message.extendedTextMessage?.contextInfo?.participant === sock.user?.id;
-                        
-                        if (!isMentioned) continue;
-                    }
+                    if (!from || from.includes('@broadcast') || from.includes('@g.us')) continue;
 
                     const text = msg.message.conversation || 
-                               msg.message.extendedTextMessage?.text || 
-                               msg.message.ephemeralMessage?.message?.conversation ||
-                               msg.message.ephemeralMessage?.message?.extendedTextMessage?.text || 
-                               msg.message.imageMessage?.caption || 
-                               msg.message.videoMessage?.caption || '';
+                                 msg.message.extendedTextMessage?.text || 
+                                 msg.message.ephemeralMessage?.message?.conversation ||
+                                 msg.message.ephemeralMessage?.message?.extendedTextMessage?.text || 
+                                 msg.message.imageMessage?.caption || '';
 
                     if (!text) continue;
 
-                    const userKey = from;
-                    const now = Date.now();
-                    
-                    if (userMessageCooldown.has(userKey)) {
-                        const lastMessage = userMessageCooldown.get(userKey);
-                        if (now - lastMessage < COOLDOWN_MS) {
-                            console.log(`⏳ Rate limit para ${from}`);
-                            continue;
-                        }
-                    }
-                    
-                    userMessageCooldown.set(userKey, now);
-                    
-                    if (userMessageCooldown.size > 1000) {
-                        const oldEntries = Array.from(userMessageCooldown.entries())
-                            .filter(([_, time]) => now - time > 60000);
-                        oldEntries.forEach(([key]) => userMessageCooldown.delete(key));
-                    }
+                    const clientIdentifier = getRealUserPhone(from, msg);
+                    if (!clientIdentifier) continue;
 
-                    // 🔥 CORREGIDO: Obtener el número real del usuario
-                    const userPhone = getRealUserPhone(from) || from;
-                    const logText = text.length > 50 ? text.substring(0, 50) + '...' : text;
-                    console.log(`📩 Mensaje de ${userPhone}${isGroup ? ' (grupo)' : ''}: ${logText}`);
+                    const userKey = clientIdentifier;
+                    const now = Date.now();
+                    if (userMessageCooldown.has(userKey) && now - userMessageCooldown.get(userKey) < COOLDOWN_MS) {
+                        continue;
+                    }
+                    userMessageCooldown.set(userKey, now);
+
+                    console.log(`📩 Mensaje recibido de ${clientIdentifier}: ${text}`);
 
                     try {
-                        await handleMessage(from, text, isGroup);
+                        await handleClientMessage(from, text, clientIdentifier, msg);
                     } catch (err) {
-                        console.error(`❌ Error procesando mensaje de ${userPhone}:`, err.message);
-                        await sendMessageWithRetry(from, '⚠️ Ocurrió un error procesando tu mensaje. Intenta de nuevo.');
+                        console.error(`❌ Error procesando mensaje de cliente:`, err.message);
+                        await sendMessageWithRetry(from, '⚠️ Ocurrió un error procesando tu solicitud. Por favor intenta de nuevo.');
                     }
                 }
             } catch (error) {
@@ -412,212 +281,67 @@ async function startBot() {
     }
 }
 
-// ===== MANEJADOR DE MENSAJES =====
-async function handleMessage(from, text, isGroup = false) {
+async function handleClientMessage(from, text, clientIdentifier, msg) {
+    const botJid = sock.user?.id ? sock.user.id.split(':')[0] : null;
+    let cleanBotPhone = cleanPhoneNumber(botJid);
+
+    let commerce = null;
     try {
-        // 🔥 CORREGIDO: Obtener el número real del usuario
-        const phone = getRealUserPhone(from);
-        if (!phone) {
-            console.error('❌ Número inválido:', from);
-            return;
-        }
+        const { data, error } = await supabase
+            .from('commerce')
+            .select('*')
+            .eq('phone', cleanBotPhone)
+            .maybeSingle();
         
-        console.log(`📞 Procesando número: ${phone}${isGroup ? ' (grupo)' : ''}`);
-
-        let commerce = null;
-        let dbError = null;
-        
-        try {
-            const result = await supabase
-                .from('commerce')
-                .select('*')
-                .eq('phone', phone)
-                .maybeSingle();
-            
-            commerce = result.data;
-            dbError = result.error;
-            
-            if (dbError) {
-                console.error('⚠️ Error Supabase:', dbError.message);
-            }
-        } catch (err) {
-            console.error('⚠️ Error consultando Supabase:', err.message);
-            dbError = err;
+        if (!error && data) {
+            commerce = data;
         }
+    } catch (err) {
+        console.error('⚠️ Error consultando comercio en Supabase:', err.message);
+    }
 
-        if (dbError || !commerce || typeof commerce !== 'object') {
-            console.log('🤖 Usuario no registrado en Senda');
-            
-            if (isGroup) {
-                await sendMessageWithRetry(from, 
-                    `👋 Hola! Soy Senda, asistente de facturación.\n\n` +
-                    `Para usar mis servicios, registra tu número en: https://senda.com/register\n\n` +
-                    `Comandos disponibles en privado: *hola*, *estado*, *factura*, *pagar*`
-                );
-            } else {
-                try {
-                    const prompt = `Eres Senda, un asistente de facturación. Un usuario te acaba de escribir: "${text}". 
-                    Si el usuario te pide facturar (con frases como "factura", "mi factura", "quiero facturar", "hacer factura", "facturar"), 
-                    responde pidiéndole los datos del cliente (RFC, Nombre o Razón Social, Correo electrónico, Monto y Concepto).
-                    Si pide estado o su cuenta ("estado", "cuenta", "mi cuenta"), dale el estado de su cuenta.
-                    Si pide pagar ("pagar", "pago", "link de pago", "quiero pagar"), dale el link de pago.
-                    Si dice "hola" o "inicio", dale la bienvenida y explícale los comandos.
-                    Si no entiendes, responde amablemente diciendo que su número no está registrado en Senda y que visite https://senda.com/register para registrarse. 
-                    Mantén la respuesta corta, amable y en español.`;
+    const businessName = commerce?.business_name || "nuestro establecimiento";
+    const lower = text.toLowerCase().trim();
 
-                    const result = await model.generateContent(prompt);
-                    const response = result.response.text();
-                    await sendMessageWithRetry(from, response);
-                } catch (geminiError) {
-                    console.error('❌ Error con Gemini:', geminiError.message);
-                    await sendMessageWithRetry(from, 
-                        '🤖 ¡Hola! Soy Senda, tu asistente.\n\n' +
-                        'Para usar el bot, registra tu número en: https://senda.com/register\n\n' +
-                        'Comandos: *hola*, *estado*, *factura*, *pagar*'
-                    );
-                }
-            }
-            return;
-        }
-
-        if (!commerce.business_name || !commerce.phone) {
-            console.error('⚠️ Datos de comercio incompletos:', commerce);
-            await sendMessageWithRetry(from, 
-                '⚠️ Tu cuenta está incompleta. Contacta a soporte: https://senda.com/support'
-            );
-            return;
-        }
-
-        const lower = text.toLowerCase().trim();
-
-        const commands = {
-            'hola': () => sendMessageWithRetry(from, 
-                `👋 ¡Hola ${commerce.business_name}!\n\n` +
-                'Soy Senda, tu asistente de facturación.\n\n' +
-                '📄 *factura* - Iniciar nueva factura\n' +
-                '📊 *estado* - Ver tu cuenta\n' +
-                '💰 *pagar* - Obtener link de pago\n' +
-                'ℹ️ *ayuda* - Ver comandos'
-            ),
-            
-            'factura': () => sendMessageWithRetry(from,
-                '📄 *Iniciando facturación*\n\n' +
-                'Envía los datos del cliente:\n' +
-                '• *RFC*\n' +
-                '• *Nombre o Razón Social*\n' +
-                '• *Correo electrónico*\n' +
-                '• *Monto*\n' +
-                '• *Concepto*\n\n' +
-                'Ejemplo:\n' +
-                'RFC: ABC123456DEF\n' +
-                'Nombre: Juan Pérez\n' +
-                'Correo: juan@empresa.com\n' +
-                'Monto: $1,500 MXN\n' +
-                'Concepto: Servicio de consultoría'
-            ),
-            
-            'estado': () => sendMessageWithRetry(from,
-                `📊 *Estado de tu cuenta*\n\n` +
-                `🏢 ${commerce.business_name}\n` +
-                `📱 ${commerce.phone}\n` +
-                `📌 ${commerce.is_active ? '✅ Cuenta activa' : '⛔ Cuenta inactiva'}\n` +
-                `💎 ${commerce.is_premium ? '⭐ Plan Premium' : '📄 Plan Gratuito'}\n` +
-                `📄 Facturas emitidas: ${commerce.invoice_count || 0}/5\n` +
-                `💰 Saldo pendiente: ${commerce.balance || '$0.00'}`
-            ),
-            
-            'pagar': () => sendMessageWithRetry(from,
-                '💰 *Link de pago*\n\n' +
-                'Activa tu cuenta por $50 MXN mensuales\n' +
-                '🔗 Link de pago: https://senda.com/pagar\n\n' +
-                '💳 Aceptamos:\n' +
-                '• Tarjetas de crédito/débito\n' +
-                '• Transferencia bancaria\n' +
-                '• PayPal'
-            ),
-            
-            'ayuda': () => sendMessageWithRetry(from,
-                'ℹ️ *Comandos disponibles:*\n\n' +
-                '👋 *hola* - Ver menú principal\n' +
-                '📄 *factura* - Iniciar facturación\n' +
-                '📊 *estado* - Ver estado de cuenta\n' +
-                '💰 *pagar* - Link de pago\n' +
-                'ℹ️ *ayuda* - Este mensaje\n\n' +
-                '❓ ¿Preguntas? Visita: https://senda.com/soporte'
-            )
-        };
-
-        if (commands[lower]) {
-            await commands[lower]();
-            return;
-        }
-
-        const matchedCommand = Object.keys(commands).find(cmd => 
-            lower.includes(cmd) && cmd.length > 2
+    if (lower.includes('factura') || lower.includes('facturar')) {
+        await sendMessageWithRetry(from, 
+            `📄 *Solicitud de Factura - ${businessName}*\n\n` +
+            `Para generar tu factura, por favor envíanos los siguientes datos en un solo mensaje:\n` +
+            `• *RFC*\n` +
+            `• *Nombre o Razón Social*\n` +
+            `• *Correo electrónico*\n` +
+            `• *Monto de compra*\n` +
+            `• *Número de ticket o concepto*\n\n` +
+            `En breve un asesor o el sistema validará tu información.`
         );
+        return;
+    }
 
-        if (matchedCommand) {
-            await commands[matchedCommand]();
-            return;
-        }
+    try {
+        const prompt = `Eres el asistente virtual de atención al cliente de un negocio llamado "${businessName}". 
+        Un cliente te acaba de escribir por WhatsApp: "${text}".
+        Responde de manera amable, profesional y corta en español ayudándole con sus dudas generales, información del negocio o guiándolo si requiere una factura. 
+        No menciones que eres una IA de Google, compórtate como el asistente oficial del comercio.`;
 
-        await sendMessageWithRetry(from,
-            '🤔 No entendí tu mensaje.\n\n' +
-            'Comandos disponibles:\n' +
-            '📄 *factura* - Nueva factura\n' +
-            '📊 *estado* - Tu cuenta\n' +
-            '💰 *pagar* - Link de pago\n' +
-            '👋 *hola* - Menú principal\n\n' +
-            'O escribe *ayuda* para más información.'
+        const result = await model.generateContent(prompt);
+        const response = result.response.text();
+        await sendMessageWithRetry(from, response);
+    } catch (geminiError) {
+        await sendMessageWithRetry(from, 
+            `👋 ¡Hola! Gracias por comunicarte con *${businessName}*.\n\n` +
+            `¿En qué podemos ayudarte hoy? Si necesitas factura, escribe la palabra *factura*.`
         );
-
-    } catch (error) {
-        console.error('❌ Error en handleMessage:', error);
-        await sendMessageWithRetry(from, '⚠️ Ocurrió un error interno. Intenta de nuevo.');
     }
 }
 
-// ===== MANEJO DE SEÑALES PARA CIERRE GRACIAL =====
 process.on('SIGINT', async () => {
-    console.log('\n🛑 Recibida señal de interrupción. Cerrando bot...');
-    if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-    }
-    if (sock) {
-        try {
-            await sock.ws.close();
-        } catch (err) {}
-    }
-    console.log('👋 Bot cerrado correctamente');
+    if (sock) { try { await sock.ws.close(); } catch (err) {} }
     process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
-    console.log('\n🛑 Recibida señal de terminación. Cerrando bot...');
-    if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-    }
-    if (sock) {
-        try {
-            await sock.ws.close();
-        } catch (err) {}
-    }
-    console.log('👋 Bot cerrado correctamente');
+    if (sock) { try { await sock.ws.close(); } catch (err) {} }
     process.exit(0);
 });
 
-// ===== INICIAR BOT =====
-console.log('🔄 Iniciando bot...');
 startBot().catch(console.error);
-
-// Monitoreo de salud
-setInterval(() => {
-    if (!isConnected && sock) {
-        console.warn('⚠️ Bot conectado pero no está en estado "open"');
-    }
-    if (messageQueue.length > 0) {
-        console.log(`📨 ${messageQueue.length} mensajes pendientes en cola`);
-    }
-}, 30000);

@@ -1,0 +1,2 @@
+export declare const crearPreferenciaPago: (commerceId: string, email: string) => Promise<import("mercadopago/dist/clients/preference/commonTypes").PreferenceResponse>;
+//# sourceMappingURL=payment.service.d.ts.map
