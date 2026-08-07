@@ -1,4 +1,4 @@
-// whatsapp-bot-final.cjs - CÓDIGO COMPLETO PARA COMERCIOS
+// whatsapp-bot-final.cjs - CÓDIGO COMPLETO PARA COMERCIOS CON FACTURAPI
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCodeTerminal = require('qrcode-terminal');
@@ -7,6 +7,8 @@ const express = require('express');
 const http = require('http');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const FacturapiModule = require('facturapi');
+const Facturapi = FacturapiModule.default || FacturapiModule;
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const EventEmitter = require('events');
@@ -22,6 +24,7 @@ console.log("=== DIAGNÓSTICO SENDA (BOT DE COMERCIO) ===");
 console.log("SUPABASE_URL:", process.env.SUPABASE_URL || "❌ No encontrada");
 console.log("SUPABASE_KEY existe:", process.env.SUPABASE_KEY ? "✅ Sí" : "❌ No");
 console.log("GEMINI_API_KEY existe:", process.env.GEMINI_API_KEY ? "✅ Sí" : "❌ No");
+console.log("FACTURAPI_SECRET_KEY existe:", process.env.FACTURAPI_SECRET_KEY ? "✅ Sí" : "❌ No");
 console.log("==========================================");
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -37,12 +40,18 @@ const supabase = createClient(
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+// Inicializar Facturapi
+const facturapi = new Facturapi(process.env.FACTURAPI_SECRET_KEY || '');
+
 let sock = null;
 let qrCode = null;
 let isConnected = false;
 let reconnectTimer = null;
 let isReconnecting = false;
 let messageQueue = [];
+
+// Memoria temporal para rastrear estados de facturación por usuario
+const userBillingState = new Map();
 
 const userMessageCooldown = new Map();
 const COOLDOWN_MS = 3000;
@@ -110,7 +119,6 @@ function cleanPhoneNumber(phone) {
     return raw;
 }
 
-// Función actualizada para manejar tanto números normales como IDs internos (LID)
 function getRealUserPhone(from, msg = null) {
     if (!from) return null;
     if (from.includes('@g.us') || from.includes('@broadcast')) {
@@ -119,14 +127,12 @@ function getRealUserPhone(from, msg = null) {
 
     let raw = from.replace(/@.*$/, '').replace(/\D/g, '');
 
-    // Si es un número tradicional de teléfono válido
     if (raw.length >= 10 && raw.length <= 13) {
         return cleanPhoneNumber(raw);
     }
 
-    // Si es un identificador LID interno de WhatsApp (números largos de 14+ dígitos)
     if (raw.length > 13) {
-        return from; // Devolvemos el identificador completo para garantizar la comunicación con el chat
+        return from; 
     }
 
     return raw;
@@ -141,7 +147,6 @@ async function sendMessageWithRetry(to, text, retries = 3) {
                 return false;
             }
             
-            // Si 'to' es un identificador LID o JID completo, lo usamos tal cual; si es número de 10 dígitos, le añadimos @s.whatsapp.net
             let jid = to;
             if (!to.includes('@')) {
                 let cleanTo = cleanPhoneNumber(to);
@@ -303,16 +308,108 @@ async function handleClientMessage(from, text, clientIdentifier, msg) {
     const businessName = commerce?.business_name || "nuestro establecimiento";
     const lower = text.toLowerCase().trim();
 
-    if (lower.includes('factura') || lower.includes('facturar')) {
+    // Ver si el usuario está en proceso de confirmar datos pendientes de factura
+    const currentState = userBillingState.get(clientIdentifier);
+
+    if (lower === 'confirmar' && currentState) {
+        await sendMessageWithRetry(from, '⏳ Generando y timbrando tu factura ante el SAT, por favor espera un momento...');
+        
+        try {
+            // 1. Crear o reusar cliente en Facturapi
+            const customer = await facturapi.customers.create({
+                legal_name: currentState.legal_name,
+                tax_id: currentState.tax_id,
+                tax_system: currentState.tax_system || '601', // General de Ley Personas Morales por defecto
+                zip: currentState.zip,
+                email: currentState.email,
+            });
+
+            // 2. Emitir CFDI 4.0
+            const invoice = await facturapi.invoices.create({
+                customer: customer.id,
+                use: currentState.use || 'G03',
+                payment_form: '01', // Efectivo o ajustable según requieras
+                payment_method: 'PUE',
+                items: [
+                    {
+                        quantity: 1,
+                        product: {
+                            description: currentState.concept || 'Consumo general',
+                            product_key: '01010101', // Clave genérica SAT
+                            price: parseFloat(currentState.amount) || 100.00,
+                            unit_key: 'ACT'
+                        }
+                    }
+                ]
+            });
+
+            // Limpiar estado temporal
+            userBillingState.delete(clientIdentifier);
+
+            await sendMessageWithRetry(from, 
+                `🎉 *¡Factura Timbrada con Éxito!*\n\n` +
+                `• *Folio UUID:* ${invoice.uuid}\n` +
+                `• *Descarga PDF:* ${invoice.verification_url}\n\n` +
+                `Gracias por tu compra en *${businessName}*.`
+            );
+        } catch (facturapiError) {
+            console.error('❌ Error Facturapi al timbrar:', facturapiError);
+            await sendMessageWithRetry(from, `❌ No se pudo generar la factura: ${facturapiError.message || 'Error desconocido en el timbrado'}. Verifica tus datos fiscales.`);
+        }
+        return;
+    }
+
+    if (lower.includes('factura') || lower.includes('facturar') || currentState) {
+        // Si mandó datos para facturar, usamos Gemini para estructurarlos
+        try {
+            const extractionPrompt = `Analiza el siguiente texto enviado por un cliente que solicita una factura fiscal en México:
+            "${text}"
+            
+            Extrae estrictamente en formato JSON los siguientes campos (si algún dato no viene explícitamente, pon null):
+            {
+              "tax_id": "RFC del cliente (12 o 13 caracteres, mayúsculas)",
+              "legal_name": "Nombre o Razón Social",
+              "email": "Correo electrónico",
+              "amount": "Monto numérico de la compra (solo el número)",
+              "zip": "Código postal fiscal (5 dígitos)",
+              "tax_system": "Régimen fiscal (ej. 601, 612, 626, etc., o null si no se menciona)",
+              "concept": "Concepto o número de ticket"
+            }
+            Responde ÚNICAMENTE con el objeto JSON válido, sin bloques de texto adicionales ni markdown de código.`;
+
+            const aiResult = await model.generateContent(extractionPrompt);
+            let jsonText = aiResult.response.text().trim();
+            jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+            
+            const parsedData = JSON.parse(jsonText);
+
+            if (parsedData.tax_id && parsedData.legal_name) {
+                // Guardar temporalmente el estado para confirmación
+                userBillingState.set(clientIdentifier, parsedData);
+
+                await sendMessageWithRetry(from, 
+                    `📄 *Revisa tus datos fiscales para ${businessName}*\n\n` +
+                    `• *RFC:* ${parsedData.tax_id}\n` +
+                    `• *Razón Social:* ${parsedData.legal_name}\n` +
+                    `• *Correo:* ${parsedData.email || 'No especificado'}\n` +
+                    `• *Monto:* $${parsedData.amount || 'Por definir'}\n` +
+                    `• *C.P.:* ${parsedData.zip || 'No especificado'}\n\n` +
+                    `Si todo es correcto, responde con la palabra *CONFIRMAR* para proceder a timbrarla. Si deseas corregir algo, vuelve a enviar los datos completos.`
+                );
+                return;
+            }
+        } catch (e) {
+            console.log('⚠️ No se pudo extraer JSON completo con IA, enviando guía estándar.');
+        }
+
         await sendMessageWithRetry(from, 
             `📄 *Solicitud de Factura - ${businessName}*\n\n` +
-            `Para generar tu factura, por favor envíanos los siguientes datos en un solo mensaje:\n` +
+            `Para generar tu factura, por favor envíanos en un solo mensaje:\n` +
             `• *RFC*\n` +
             `• *Nombre o Razón Social*\n` +
+            `• *Código Postal*\n` +
             `• *Correo electrónico*\n` +
-            `• *Monto de compra*\n` +
-            `• *Número de ticket o concepto*\n\n` +
-            `En breve un asesor o el sistema validará tu información.`
+            `• *Monto y Concepto*`
         );
         return;
     }

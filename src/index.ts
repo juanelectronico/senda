@@ -11,6 +11,7 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 // Importación correcta para MercadoPago en ESM
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
+import paymentRoutes from './routes/payment.routes';
 
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
@@ -27,6 +28,9 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ===== RUTAS DE PAGO (INTEGRADAS CORRECTAMENTE) =====
+app.use('/api/payment', paymentRoutes);
 
 // ===== STATIC FILES =====
 const publicDir = path.join(process.cwd(), 'public');
