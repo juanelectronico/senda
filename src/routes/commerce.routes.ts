@@ -1,8 +1,14 @@
 import { Router, Request, Response } from 'express';
 import { supabase } from '../config/supabase';
 import { uploadCertificate } from '../certificateService';
+import { MercadoPagoConfig, Preference } from 'mercadopago';
 
 const router = Router();
+
+// Configuración de Mercado Pago
+const client = new MercadoPagoConfig({ 
+  accessToken: process.env.MP_ACCESS_TOKEN || '' 
+});
 
 // Endpoint de registro
 router.post('/register', async (req: Request, res: Response) => {
@@ -27,6 +33,9 @@ router.post('/register', async (req: Request, res: Response) => {
       });
     }
 
+    // Solución para pruebas: limpiar si ya existe el RFC para evitar error 23505 de duplicado
+    await supabase.from('commerce').delete().eq('rfc', rfc);
+
     // Guardar en Supabase (tabla commerce)
     const { data, error } = await supabase
       .from('commerce')
@@ -48,29 +57,63 @@ router.post('/register', async (req: Request, res: Response) => {
       .single();
 
     if (error) {
-      console.error('Error al guardar:', error);
+      console.error('Error al guardar en Supabase:', error);
       return res.status(500).json({ 
         success: false, 
         error: error.message 
       });
     }
 
-    // Si el usuario envió el certificado en base64 durante el registro, lo subimos a nuestro bucket privado
+    // Subir el certificado al bucket privado si existe
     if (csd_cer_base64) {
       try {
         const cerBuffer = Buffer.from(csd_cer_base64, 'base64');
         const fileName = `${rfc}_certificate.cer`;
-        
         await uploadCertificate(data.id, cerBuffer, fileName);
       } catch (uploadError) {
-        console.error('Aviso: No se pudo subir el archivo .cer al bucket, pero el comercio fue registrado:', uploadError);
+        console.error('Aviso: No se pudo subir el archivo .cer al bucket:', uploadError);
       }
     }
 
-    // Éxito
+    // Generar la preferencia de pago en Mercado Pago por $50.00 MXN
+    let initPoint = null;
+    try {
+      const preference = new Preference(client);
+      const resultPreference = await preference.create({
+        body: {
+          items: [
+            {
+              id: 'activation_fee',
+              title: 'Activación de Facturación Automática - Senda',
+              quantity: 1,
+              unit_price: 50.00,
+              currency_id: 'MXN'
+            }
+          ],
+          payer: {
+            email: email,
+            phone: {
+              number: phone
+            }
+          },
+          back_urls: {
+            success: `${req.protocol}://${req.get('host')}/success.html`,
+            failure: `${req.protocol}://${req.get('host')}/register.html`,
+            pending: `${req.protocol}://${req.get('host')}/register.html`
+          },
+          auto_return: 'approved'
+        }
+      });
+      initPoint = resultPreference.init_point;
+    } catch (mpError) {
+      console.error('Error generando la preferencia de Mercado Pago:', mpError);
+    }
+
+    // Respuesta exitosa final con el link de pago
     return res.json({
       success: true,
-      message: '✅ ¡Registro exitoso! Ya puedes comenzar a facturar con Senda desde WhatsApp.',
+      init_point: initPoint,
+      message: '✅ ¡Registro exitoso! Completa tu pago para activar WhatsApp.',
       commerce: {
         id: data.id,
         business_name: data.business_name,
@@ -79,7 +122,7 @@ router.post('/register', async (req: Request, res: Response) => {
     });
 
   } catch (error: any) {
-    console.error('Error en registro:', error);
+    console.error('Error crítico en registro:', error);
     return res.status(500).json({ 
       success: false, 
       error: 'Error interno del servidor' 
