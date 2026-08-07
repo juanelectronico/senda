@@ -13,6 +13,9 @@ import { dirname } from 'path';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import paymentRoutes from './routes/payment.routes';
 
+// 👇 NUEVO IMPORT (AGREGADO)
+import { FiscalInterceptor } from './features/fiscal/interceptor';
+
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -28,6 +31,10 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// 👇 NUEVO INTERCEPTOR (AGREGADO)
+// ===== INTERCEPTOR FISCAL =====
+const fiscalInterceptor = new FiscalInterceptor();
 
 // ===== RUTAS DE PAGO (INTEGRADAS CORRECTAMENTE) =====
 app.use('/api/payment', paymentRoutes);
@@ -337,6 +344,42 @@ app.get('/payment/pending', (req, res) => {
     `);
 });
 
+// ===== 👇 NUEVO WEBHOOK DE WHATSAPP (AGREGADO) =====
+// ===== WEBHOOK DE WHATSAPP CON INTERCEPTOR FISCAL =====
+app.post('/webhook/whatsapp', async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { message, userId } = req.body;
+        
+        console.log(`📨 Mensaje de WhatsApp de ${userId}: ${message?.substring(0, 50)}...`);
+
+        // Verificar si es una solicitud de factura
+        const fiscalResponse = await fiscalInterceptor.intercept(message, userId);
+        
+        if (fiscalResponse) {
+            // Es una solicitud de factura, responder con el flujo fiscal
+            return res.json({ 
+                success: true, 
+                response: fiscalResponse,
+                flow: 'fiscal'
+            });
+        }
+
+        // Si no es factura, responder con mensaje genérico
+        return res.json({ 
+            success: true, 
+            response: 'Hola, ¿cómo puedo ayudarte?',
+            flow: 'default'
+        });
+
+    } catch (error: any) {
+        console.error('❌ Error en webhook de WhatsApp:', error);
+        return res.status(500).json({
+            success: false,
+            error: 'Error procesando mensaje'
+        });
+    }
+});
+
 // ===== FUNCIÓN PRINCIPAL =====
 async function main() {
     await initSupabase();
@@ -348,6 +391,7 @@ async function main() {
         console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
         console.log(`🌐 Health: http://localhost:${PORT}/health`);
         console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
+        console.log(`💬 Webhook WhatsApp: http://localhost:${PORT}/webhook/whatsapp`);
         console.log('========================================');
     });
 }
