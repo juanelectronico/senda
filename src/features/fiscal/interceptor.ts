@@ -5,7 +5,7 @@ import { ConversationStateManager } from './services/stateManager.js';
 import { FiscalValidator } from './services/validator.js';
 import { GeminiExtractor } from './services/geminiExtractor.js';
 import { InvoiceRepository } from './repository/invoiceRepository.js';
-import { FacturapiClient } from './integrations/facturapi,js';
+import { FacturapiClient } from './integrations/facturapi.js';
 import { MerchantNotifier } from './services/merchantNotifier.js';
 
 export class FiscalInterceptor {
