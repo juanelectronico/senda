@@ -1,6 +1,6 @@
 // src/features/fiscal/interceptor.ts
 
-import { FiscalFlow } from './flows/fiscalFlow';
+import { FiscalFlow } from './flows/fiscalFlow.js';
 import { ConversationStateManager } from './services/stateManager';
 import { FiscalValidator } from './services/validator';
 import { GeminiExtractor } from './services/geminiExtractor';
