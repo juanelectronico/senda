@@ -380,25 +380,17 @@ app.post('/webhook/whatsapp', async (req: Request, res: Response): Promise<any> 
     }
 });
 
-// ===== FUNCIÓN PRINCIPAL =====
-async function main() {
+// ===== INICIO AUTOMÁTICO DEL SERVIDOR (OBLIGATORIO PARA CLOUD RUN) =====
+const PORT = parseInt(process.env.PORT || '8080', 10);
+
+app.listen(PORT, '0.0.0.0', async () => {
     await initSupabase();
-
-    const PORT = parseInt(process.env.PORT || '8080', 10);
-
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log('========================================');
-        console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
-        console.log(`🌐 Health: http://localhost:${PORT}/health`);
-        console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
-        console.log(`💬 Webhook WhatsApp: http://localhost:${PORT}/webhook/whatsapp`);
-        console.log('========================================');
-    });
-}
-
-main().catch((err) => {
-    console.error('❌ Error fatal al iniciar el servidor:', err);
-    process.exit(1);
+    console.log('========================================');
+    console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
+    console.log(`🌐 Health: http://localhost:${PORT}/health`);
+    console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
+    console.log(`💬 Webhook WhatsApp: http://localhost:${PORT}/webhook/whatsapp`);
+    console.log('========================================');
 });
 
 export default app;
