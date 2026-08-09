@@ -1,6 +1,6 @@
 // src/features/fiscal/services/merchantNotifier.ts
 
-import { Invoice } from '../types';
+import { Invoice } from '../types/index.js';
 
 export class MerchantNotifier {
   async notifyNewInvoice(invoice: Invoice): Promise<void> {

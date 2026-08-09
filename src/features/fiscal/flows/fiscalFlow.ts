@@ -6,7 +6,7 @@ import { MerchantNotifier } from '../services/merchantNotifier';
 import { InvoiceRepository } from '../repository/invoiceRepository';
 import { FacturapiClient } from '../integrations/facturapi';
 import { GeminiExtractor } from '../services/geminiExtractor';
-import { ConversationStage } from '../types';
+import { ConversationStage } from '../types/index.js';
 
 export class FiscalFlow {
   constructor(

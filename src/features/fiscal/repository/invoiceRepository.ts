@@ -1,6 +1,6 @@
 // src/features/fiscal/repository/invoiceRepository.ts
 
-import { Invoice, FiscalData } from '../types';
+import { Invoice, FiscalData } from '../types/index.js';
 
 // Simulación de base de datos (reemplazar con Supabase después)
 const invoices: Invoice[] = [];

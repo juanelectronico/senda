@@ -1,6 +1,6 @@
 // src/features/fiscal/services/stateManager.ts
 
-import { ConversationStage, FiscalData } from '../types';
+import { ConversationStage, FiscalData } from '../types/index.js';
 
 interface ConversationState {
   stage: ConversationStage;

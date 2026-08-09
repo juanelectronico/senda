@@ -1,11 +1,11 @@
 // src/features/fiscal/interceptor.ts
-import { FiscalFlow } from './flows/fiscalFlow';
-import { ConversationStateManager } from './services/stateManager';
-import { FiscalValidator } from './services/validator';
-import { GeminiExtractor } from './services/geminiExtractor';
-import { InvoiceRepository } from './repository/invoiceRepository';
-import { FacturapiClient } from './integrations/facturapi';
-import { MerchantNotifier } from './services/merchantNotifier';
+import { FiscalFlow } from './flows/fiscalFlow.js';
+import { ConversationStateManager } from './services/stateManager.js';
+import { FiscalValidator } from './services/validator.js';
+import { GeminiExtractor } from './services/geminiExtractor.js';
+import { InvoiceRepository } from './repository/invoiceRepository.js';
+import { FacturapiClient } from './integrations/facturapi.js';
+import { MerchantNotifier } from './services/merchantNotifier.js';
 export class FiscalInterceptor {
     fiscalFlow;
     isActive;

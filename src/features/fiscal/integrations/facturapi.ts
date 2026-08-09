@@ -1,4 +1,4 @@
-import { FiscalData } from '../types';
+import { FiscalData } from '../types/index.js';
 
 interface FacturapiResponse {
   id: string;

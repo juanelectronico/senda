@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { crearPreferenciaPago } from '../services/payment.service';
+import { crearPreferenciaPago } from '../services/payment.service.js';
 const router = Router();
 router.post('/create-preference', async (req, res) => {
     try {

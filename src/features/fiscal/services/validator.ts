@@ -1,6 +1,6 @@
 // src/features/fiscal/services/validator.ts
 
-import { FiscalData } from '../types';
+import { FiscalData } from '../types/index.js';
 
 interface ValidationResult {
   isValid: boolean;

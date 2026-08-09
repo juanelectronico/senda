@@ -1,7 +1,7 @@
 // src/features/fiscal/services/geminiExtractor.ts
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { FiscalData } from '../types';
+import { FiscalData } from '../types/index.js';
 
 export class GeminiExtractor {
   private genAI: GoogleGenerativeAI;

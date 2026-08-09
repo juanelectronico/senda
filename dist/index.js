@@ -10,14 +10,16 @@ import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 // Importación correcta para MercadoPago en ESM
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
-import paymentRoutes from './routes/payment.routes';
+import paymentRoutes from './routes/payment.routes.js';
 // 👇 NUEVO IMPORT (AGREGADO)
-import { FiscalInterceptor } from './features/fiscal/interceptor';
+import { FiscalInterceptor } from './features/fiscal/interceptor.js';
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 console.log('🚀 Iniciando Senda API...');
 const app = express();
+// ===== PASO 1: ALMACÉN DE QRs EN MEMORIA =====
+export const activeQrs = new Map();
 // ===== MIDDLEWARE =====
 app.use(cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
@@ -25,10 +27,9 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-// 👇 NUEVO INTERCEPTOR (AGREGADO)
 // ===== INTERCEPTOR FISCAL =====
 const fiscalInterceptor = new FiscalInterceptor();
-// ===== RUTAS DE PAGO (INTEGRADAS CORRECTAMENTE) =====
+// ===== RUTAS DE PAGO =====
 app.use('/api/payment', paymentRoutes);
 // ===== STATIC FILES =====
 const publicDir = path.join(process.cwd(), 'public');
@@ -42,7 +43,7 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
-// ===== INICIALIZAR MERCADO PAGO (CORREGIDO) =====
+// ===== INICIALIZAR MERCADO PAGO =====
 let mercadopagoClient = null;
 try {
     const accessToken = process.env.MP_ACCESS_TOKEN;
@@ -90,53 +91,28 @@ app.post('/api/commerce/register', async (req, res) => {
         console.log('📝 Registro de comercio');
         const { rfc, business_name, tax_regime, zip_code, phone, email, csd_cer_base64, csd_key_base64, csd_password } = req.body;
         if (!rfc || !business_name || !tax_regime || !zip_code || !phone || !email) {
-            return res.status(400).json({
-                success: false,
-                error: 'Faltan campos obligatorios'
-            });
+            return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
         }
         console.log('🔍 Validando certificados SAT...');
         const satValidation = validarSAT(csd_cer_base64, csd_key_base64, csd_password);
         if (!satValidation.valid) {
-            console.warn('❌ Error SAT:', satValidation.errors);
-            return res.status(400).json({
-                success: false,
-                error: 'Certificados SAT inválidos',
-                details: satValidation.errors
-            });
+            return res.status(400).json({ success: false, error: 'Certificados SAT inválidos', details: satValidation.errors });
         }
-        console.log('✅ Certificados SAT válidos');
         if (!supabase) {
             await initSupabase();
-            if (!supabase) {
-                return res.status(503).json({
-                    success: false,
-                    error: 'Base de datos no disponible'
-                });
-            }
+            if (!supabase)
+                return res.status(503).json({ success: false, error: 'Base de datos no disponible' });
         }
         if (!mercadopagoClient) {
-            return res.status(503).json({
-                success: false,
-                error: 'Servicio de pagos no disponible'
-            });
+            return res.status(503).json({ success: false, error: 'Servicio de pagos no disponible' });
         }
         console.log('💾 Guardando en Supabase...');
         const { data, error } = await supabase
             .from('commerce')
             .insert({
-            rfc,
-            business_name,
-            tax_regime,
-            zip_code,
-            phone,
-            email,
-            csd_cer_base64,
-            csd_key_base64,
-            csd_password,
-            is_active: false,
-            is_premium: false,
-            invoice_count: 0,
+            rfc, business_name, tax_regime, zip_code, phone, email,
+            csd_cer_base64, csd_key_base64, csd_password,
+            is_active: false, is_premium: false, invoice_count: 0,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
         })
@@ -144,14 +120,9 @@ app.post('/api/commerce/register', async (req, res) => {
             .single();
         if (error) {
             console.error('❌ Error Supabase:', error);
-            return res.status(500).json({
-                success: false,
-                error: 'Error al guardar en base de datos',
-                details: error.message
-            });
+            return res.status(500).json({ success: false, error: 'Error al guardar en base de datos', details: error.message });
         }
         console.log('✅ Comercio registrado ID:', data.id);
-        // ===== GENERAR PREFERENCIA DE PAGO (CORREGIDO) =====
         console.log('🔄 Generando preferencia de pago...');
         let initPoint = null;
         try {
@@ -169,13 +140,10 @@ app.post('/api/commerce/register', async (req, res) => {
                             unit_price: 50.00,
                             currency_id: 'MXN'
                         }],
-                    payer: {
-                        email: email,
-                        name: business_name
-                    },
+                    payer: { email: email, name: business_name },
                     external_reference: data.id.toString(),
                     back_urls: {
-                        success: `${baseUrl}/payment/success`,
+                        success: `${baseUrl}/payment/success?id=${data.id}`,
                         failure: `${baseUrl}/payment/failure`,
                         pending: `${baseUrl}/payment/pending`
                     },
@@ -184,71 +152,43 @@ app.post('/api/commerce/register', async (req, res) => {
             });
             initPoint = result.init_point;
             console.log('✅ Preferencia creada:', result.id);
-            console.log('🔗 Link de pago:', initPoint);
         }
         catch (mpError) {
             console.error('❌ Error MercadoPago:', mpError);
-            return res.status(500).json({
-                success: false,
-                error: 'No se pudo generar el link de pago',
-                details: mpError.message
-            });
+            return res.status(500).json({ success: false, error: 'No se pudo generar el link de pago', details: mpError.message });
         }
         return res.json({
             success: true,
             message: '✅ Registro exitoso. Procede al pago.',
             init_point: initPoint,
-            commerce: {
-                id: data.id,
-                business_name: data.business_name,
-                email: data.email,
-                phone: data.phone
-            }
+            commerce: { id: data.id, business_name: data.business_name, email: data.email, phone: data.phone }
         });
     }
     catch (error) {
         console.error('❌ Error general:', error);
-        return res.status(500).json({
-            success: false,
-            error: 'Error interno del servidor'
-        });
+        return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
-// ===== WEBHOOK DE MERCADO PAGO (CORREGIDO) =====
+// ===== WEBHOOK DE MERCADO PAGO =====
 app.post('/api/payment/webhook', async (req, res) => {
     try {
         console.log('📡 Webhook recibido');
         const { type, data, action } = req.body;
         if (type === 'payment' || action === 'payment.updated') {
             const paymentId = data?.id || req.body.id;
-            if (!paymentId) {
+            if (!paymentId || !mercadopagoClient)
                 return res.status(200).json({ received: true });
-            }
-            if (!mercadopagoClient) {
-                console.error('❌ MercadoPago no inicializado');
-                return res.status(200).json({ received: true });
-            }
-            // OBTENER PAGO CON LA NUEVA SINTAXIS
             const payment = new Payment(mercadopagoClient);
             const paymentInfo = await payment.get({ id: paymentId });
             console.log(`💰 Pago ${paymentId}: ${paymentInfo.status}`);
             if (paymentInfo.status === 'approved' && supabase) {
                 const commerceId = paymentInfo.external_reference;
                 if (commerceId) {
-                    const { error } = await supabase
+                    await supabase
                         .from('commerce')
-                        .update({
-                        is_active: true,
-                        is_premium: true,
-                        updated_at: new Date().toISOString()
-                    })
+                        .update({ is_active: true, is_premium: true, updated_at: new Date().toISOString() })
                         .eq('id', commerceId);
-                    if (error) {
-                        console.error('❌ Error al actualizar comercio en webhook:', error);
-                    }
-                    else {
-                        console.log(`✅ Pago aprobado para comercio ${commerceId}`);
-                    }
+                    console.log(`✅ Pago aprobado para comercio ${commerceId}`);
                 }
             }
         }
@@ -259,16 +199,77 @@ app.post('/api/payment/webhook', async (req, res) => {
         res.status(200).json({ received: true });
     }
 });
-// ===== PÁGINAS DE PAGO =====
+// ===== PASO 2: RUTA PARA LEER DEL MAPA DE QRs =====
+app.get('/api/whatsapp/get-qr', async (req, res) => {
+    try {
+        const commerceId = req.query.id;
+        if (!commerceId)
+            return res.status(400).json({ success: false, error: 'Falta el ID del comercio' });
+        if (!supabase)
+            await initSupabase();
+        const { data: commerce, error } = await supabase
+            .from('commerce')
+            .select('*')
+            .eq('id', commerceId)
+            .single();
+        if (error || !commerce)
+            return res.status(404).json({ success: false, error: 'Comercio no encontrado' });
+        if (!commerce.is_active)
+            return res.status(403).json({ success: false, error: 'El pago aún no ha sido confirmado' });
+        // Consultar el QR guardado en memoria por Baileys
+        const qrData = activeQrs.get(commerceId);
+        if (!qrData) {
+            return res.json({ success: false, message: 'Esperando generación del QR por el bot...' });
+        }
+        return res.json({
+            success: true,
+            message: 'Comercio activo',
+            qr: qrData
+        });
+    }
+    catch (error) {
+        console.error('❌ Error al obtener QR:', error);
+        return res.status(500).json({ success: false, error: 'Error interno al obtener el QR' });
+    }
+});
+// ===== PÁGINAS DE PAGO (ÉXITO, FALLIDO, PENDIENTE) =====
 app.get('/payment/success', (req, res) => {
     res.send(`
         <!DOCTYPE html>
         <html>
-        <head><title>Pago Exitoso</title></head>
+        <head><title>Pago Exitoso - Senda</title></head>
         <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1 style="color: green;">✅ Pago Exitoso</h1>
-            <p>Tu cuenta ha sido activada correctamente.</p>
-            <a href="/register.html">Volver al inicio</a>
+            <h1 style="color: green;">✅ ¡Pago Exitoso!</h1>
+            <p>Tu cuenta ha sido activada. Conectando con WhatsApp...</p>
+            <div id="qr-box">
+                <p id="status-msg">Cargando código QR de vinculación...</p>
+                <img id="qr-image" style="max-width: 300px; display:none;" alt="QR WhatsApp" />
+            </div>
+            <br><a href="/register.html">Volver al inicio</a>
+            <script>
+                const urlParams = new URLSearchParams(window.location.search);
+                const commerceId = urlParams.get('id');
+                
+                function checkQR() {
+                    if (commerceId) {
+                        fetch('/api/whatsapp/get-qr?id=' + commerceId)
+                            .then(res => res.json())
+                            .then(data => {
+                                if(data.success && data.qr) {
+                                    document.getElementById('qr-image').src = data.qr;
+                                    document.getElementById('qr-image').style.display = 'block';
+                                    document.getElementById('status-msg').innerText = 'Escanea este código con tu WhatsApp:';
+                                } else {
+                                    setTimeout(checkQR, 3000); // Reintentar cada 3 segundos hasta que el bot lo genere
+                                }
+                            }).catch(err => {
+                                console.error(err);
+                                setTimeout(checkQR, 3000);
+                            });
+                    }
+                }
+                checkQR();
+            </script>
         </body>
         </html>
     `);
@@ -299,52 +300,31 @@ app.get('/payment/pending', (req, res) => {
         </html>
     `);
 });
-// ===== 👇 NUEVO WEBHOOK DE WHATSAPP (AGREGADO) =====
 // ===== WEBHOOK DE WHATSAPP CON INTERCEPTOR FISCAL =====
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
         const { message, userId } = req.body;
         console.log(`📨 Mensaje de WhatsApp de ${userId}: ${message?.substring(0, 50)}...`);
-        // Verificar si es una solicitud de factura
         const fiscalResponse = await fiscalInterceptor.intercept(message, userId);
         if (fiscalResponse) {
-            // Es una solicitud de factura, responder con el flujo fiscal
-            return res.json({
-                success: true,
-                response: fiscalResponse,
-                flow: 'fiscal'
-            });
+            return res.json({ success: true, response: fiscalResponse, flow: 'fiscal' });
         }
-        // Si no es factura, responder con mensaje genérico
-        return res.json({
-            success: true,
-            response: 'Hola, ¿cómo puedo ayudarte?',
-            flow: 'default'
-        });
+        return res.json({ success: true, response: 'Hola, ¿cómo puedo ayudarte?', flow: 'default' });
     }
     catch (error) {
         console.error('❌ Error en webhook de WhatsApp:', error);
-        return res.status(500).json({
-            success: false,
-            error: 'Error procesando mensaje'
-        });
+        return res.status(500).json({ success: false, error: 'Error procesando mensaje' });
     }
 });
-// ===== FUNCIÓN PRINCIPAL =====
-async function main() {
-    await initSupabase();
-    const PORT = parseInt(process.env.PORT || '8080', 10);
-    app.listen(PORT, '0.0.0.0', () => {
-        console.log('========================================');
-        console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
-        console.log(`🌐 Health: http://localhost:${PORT}/health`);
-        console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
-        console.log(`💬 Webhook WhatsApp: http://localhost:${PORT}/webhook/whatsapp`);
-        console.log('========================================');
-    });
-}
-main().catch((err) => {
-    console.error('❌ Error fatal al iniciar el servidor:', err);
-    process.exit(1);
+// ===== INICIO AUTOMÁTICO DEL SERVIDOR =====
+const PORT = parseInt(process.env.PORT || '8080', 10);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log('========================================');
+    console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
+    console.log(`🌐 Health: http://localhost:${PORT}/health`);
+    console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
+    console.log('========================================');
+    // Inicializar Supabase en segundo plano sin bloquear el arranque
+    initSupabase().catch(err => console.error('❌ Error en initSupabase async:', err));
 });
 export default app;

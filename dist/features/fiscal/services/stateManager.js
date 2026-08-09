@@ -1,5 +1,5 @@
 // src/features/fiscal/services/stateManager.ts
-import { ConversationStage } from '../types';
+import { ConversationStage } from '../types/index.js';
 export class ConversationStateManager {
     states = new Map();
     SESSION_TIMEOUT = 60; // minutos
