@@ -144,9 +144,10 @@ app.post('/api/commerce/register', async (req, res) => {
                     external_reference: data.id.toString(),
                     back_urls: {
                         success: `${baseUrl}/payment/success?id=${data.id}`,
-                        failure: `${baseUrl}/payment/failure`,
-                        pending: `${baseUrl}/payment/pending`
+                        failure: `${baseUrl}/payment/failure?id=${data.id}`,
+                        pending: `${baseUrl}/payment/pending?id=${data.id}`
                     },
+                    auto_return: "approved", // 👈 Forzar el retorno automático al aprobarse
                     notification_url: `${baseUrl}/api/payment/webhook`
                 }
             });
