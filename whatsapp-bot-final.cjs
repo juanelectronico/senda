@@ -1,4 +1,4 @@
-// whatsapp-bot-final.cjs - CÓDIGO COMPLETO PARA COMERCIOS CON FACTURAPI
+// whatsapp-bot-final.cjs - VERSIÓN FINAL CON CORRECCIÓN DE `invoice.id` (Facturapi V2)
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCodeTerminal = require('qrcode-terminal');
@@ -7,8 +7,7 @@ const express = require('express');
 const http = require('http');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-const FacturapiModule = require('facturapi');
-const Facturapi = FacturapiModule.default || FacturapiModule;
+const axios = require('axios');
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const EventEmitter = require('events');
@@ -40,8 +39,189 @@ const supabase = createClient(
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-// Inicializar Facturapi
-const facturapi = new Facturapi(process.env.FACTURAPI_SECRET_KEY || '');
+// ============================================
+// FACTURAPI V2 - CFDI 4.0
+// ============================================
+const FACTURAPI_API_URL = 'https://www.facturapi.io/v2';
+const FACTURAPI_API_KEY = process.env.FACTURAPI_SECRET_KEY || '';
+
+console.log(`📍 Facturapi URL: ${FACTURAPI_API_URL}`);
+
+// Cliente HTTP para Facturapi
+const facturapiClient = axios.create({
+    baseURL: FACTURAPI_API_URL,
+    headers: {
+        'Authorization': `Bearer ${FACTURAPI_API_KEY}`,
+        'Content-Type': 'application/json'
+    }
+});
+
+// ============================================
+// CORREGIDO: Detección automática de régimen fiscal y UsoCFDI
+// ============================================
+async function createFacturapiCustomer(data) {
+    try {
+        let taxSystem = data.tax_system;
+        if (!taxSystem) {
+            if (data.tax_id && data.tax_id.length === 13) {
+                taxSystem = '605';
+                console.log(`📌 Régimen detectado automáticamente: 605 (Persona Física)`);
+            } else {
+                taxSystem = '601';
+                console.log(`📌 Régimen detectado automáticamente: 601 (Persona Moral)`);
+            }
+        }
+        
+        const response = await facturapiClient.post('/customers', {
+            legal_name: data.legal_name,
+            tax_id: data.tax_id,
+            tax_system: taxSystem,
+            email: data.email,
+            address: {
+                zip: data.zip
+            }
+        });
+        return response.data;
+    } catch (error) {
+        console.error('❌ Error creando cliente Facturapi v2:', error.response?.data || error.message);
+        throw error;
+    }
+}
+
+async function createFacturapiInvoice(customerId, data, taxId) {
+    try {
+        let use = data.use;
+        if (!use) {
+            if (taxId && taxId.length === 13) {
+                use = 'D01';
+                console.log(`📌 UsoCFDI detectado automáticamente: D01 (Persona Física)`);
+            } else {
+                use = 'G03';
+                console.log(`📌 UsoCFDI detectado automáticamente: G03 (Persona Moral)`);
+            }
+        }
+        
+        const response = await facturapiClient.post('/invoices', {
+            customer: customerId,
+            use: use,
+            payment_form: '01',
+            payment_method: 'PUE',
+            items: [
+                {
+                    quantity: 1,
+                    product: {
+                        description: data.concept || 'Consumo general',
+                        product_key: '01010101',
+                        price: parseFloat(data.amount) || 100.00,
+                        unit_key: 'ACT'
+                    }
+                }
+            ]
+        });
+        return response.data;
+    } catch (error) {
+        console.error('❌ Error creando factura Facturapi v2:', error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// ============================================
+// NUEVA FUNCIÓN: OBTENER FACTURA COMPLETA CON LINKS
+// ============================================
+async function getFacturapiInvoice(invoiceId) {
+    try {
+        const response = await facturapiClient.get(`/invoices/${invoiceId}`);
+        return response.data;
+    } catch (error) {
+        console.error('❌ Error obteniendo factura de Facturapi:', error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// ============================================
+// EXTRACTOR MANUAL DE DATOS FISCALES (SIN GEMINI)
+// ============================================
+function extractFiscalDataManual(text) {
+    const data = {
+        tax_id: null,
+        legal_name: null,
+        email: null,
+        amount: null,
+        zip: null,
+        tax_system: null,
+        concept: null,
+        use: null
+    };
+
+    const rfcMatch = text.match(/[A-Za-zÑñ]{3,4}[0-9]{6,7}[A-Za-z0-9]{1,3}/);
+    if (rfcMatch) {
+        data.tax_id = rfcMatch[0].toUpperCase();
+        console.log(`📌 RFC extraído manualmente: ${data.tax_id}`);
+    }
+
+    const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    if (emailMatch) {
+        data.email = emailMatch[0];
+        console.log(`📌 Email extraído manualmente: ${data.email}`);
+    }
+
+    const zipMatch = text.match(/\b\d{5}\b/);
+    if (zipMatch) {
+        data.zip = zipMatch[0];
+        console.log(`📌 CP extraído manualmente: ${data.zip}`);
+    }
+
+    let cleanText = text;
+    if (data.zip) {
+        cleanText = cleanText.replace(data.zip, '');
+    }
+    cleanText = cleanText.replace(/monto/i, '').replace(/concepto/i, '').replace(/codigo postal/i, '').replace(/cp\s*:/gi, '');
+
+    const amountMatch = cleanText.match(/\b(\d+\.?\d*)\b/);
+    if (amountMatch) {
+        const amount = parseFloat(amountMatch[1]);
+        if (amount > 0 && amount < 1000000) {
+            data.amount = amount;
+            console.log(`📌 Monto extraído manualmente: ${data.amount}`);
+        }
+    }
+
+    const conceptKeywords = ['concepto', 'pago', 'venta', 'compra', 'servicio', 'producto', 'impresión', 'concept'];
+    for (const keyword of conceptKeywords) {
+        if (text.toLowerCase().includes(keyword)) {
+            const idx = text.toLowerCase().indexOf(keyword);
+            const phrase = text.substring(idx, idx + 60).trim();
+            data.concept = phrase;
+            console.log(`📌 Concepto extraído manualmente: ${data.concept}`);
+            break;
+        }
+    }
+
+    if (data.tax_id) {
+        let afterRfc = text.replace(data.tax_id, '').trim();
+        afterRfc = afterRfc.replace(/cp\s*:/gi, '').replace(/codigo postal\s*:/gi, '').trim();
+        
+        if (data.email) {
+            let beforeEmail = afterRfc.split(data.email)[0].trim();
+            if (data.zip) {
+                beforeEmail = beforeEmail.replace(data.zip, '').trim();
+            }
+            if (beforeEmail.length > 3 && beforeEmail.length < 80) {
+                data.legal_name = beforeEmail;
+                console.log(`📌 Nombre extraído manualmente: ${data.legal_name}`);
+            }
+        } else if (data.zip) {
+            let beforeZip = afterRfc.split(data.zip)[0].trim();
+            if (beforeZip.length > 3 && beforeZip.length < 80) {
+                data.legal_name = beforeZip;
+                console.log(`📌 Nombre extraído manualmente: ${data.legal_name}`);
+            }
+        }
+    }
+
+    console.log('📊 Resultado extracción manual:', data);
+    return data;
+}
 
 let sock = null;
 let qrCode = null;
@@ -50,9 +230,7 @@ let reconnectTimer = null;
 let isReconnecting = false;
 let messageQueue = [];
 
-// Memoria temporal para rastrear estados de facturación por usuario
 const userBillingState = new Map();
-
 const userMessageCooldown = new Map();
 const COOLDOWN_MS = 3000;
 
@@ -113,9 +291,20 @@ async function reconnectBot() {
 function cleanPhoneNumber(phone) {
     if (!phone) return null;
     let raw = String(phone).replace(/\D/g, '');
+    
     if (raw.length === 10) return '52' + raw;
-    if (raw.length === 12) return raw;
-    if (raw.length === 13 && raw.startsWith('521')) return '52' + raw.substring(3);
+    if (raw.length === 11 && raw.startsWith('1')) {
+        return '52' + raw.substring(1);
+    }
+    if (raw.length === 12 && raw.startsWith('52')) return raw;
+    if (raw.length === 13 && raw.startsWith('521')) {
+        return '52' + raw.substring(3);
+    }
+    if (raw.length > 13) {
+        const match = raw.match(/\d{10}/);
+        if (match) return '52' + match[0];
+    }
+    console.log(`⚠️ No se pudo limpiar número: ${phone} -> ${raw}`);
     return raw;
 }
 
@@ -124,17 +313,31 @@ function getRealUserPhone(from, msg = null) {
     if (from.includes('@g.us') || from.includes('@broadcast')) {
         return null;
     }
-
+    
     let raw = from.replace(/@.*$/, '').replace(/\D/g, '');
-
+    
+    if (raw.length === 15 || raw.length === 16) {
+        const match = from.match(/(\d{10})/);
+        if (match) {
+            console.log(`🔍 Extrayendo número de @lid: ${match[1]}`);
+            return cleanPhoneNumber(match[1]);
+        }
+        console.log(`⚠️ No se pudo extraer número de: ${from}`);
+        return null;
+    }
+    
     if (raw.length >= 10 && raw.length <= 13) {
         return cleanPhoneNumber(raw);
     }
-
+    
     if (raw.length > 13) {
-        return from; 
+        const match = from.match(/(\d{10})/);
+        if (match) {
+            return cleanPhoneNumber(match[1]);
+        }
+        return null;
     }
-
+    
     return raw;
 }
 
@@ -256,8 +459,11 @@ async function startBot() {
 
                     if (!text) continue;
 
-                    const clientIdentifier = getRealUserPhone(from, msg);
-                    if (!clientIdentifier) continue;
+                    let clientIdentifier = getRealUserPhone(from, msg);
+                    if (!clientIdentifier) {
+                        clientIdentifier = from.replace(/@.*$/, '');
+                        console.log(`⚠️ Usando fallback JID: ${clientIdentifier} para mensaje: ${text.substring(0, 30)}...`);
+                    }
 
                     const userKey = clientIdentifier;
                     const now = Date.now();
@@ -266,7 +472,7 @@ async function startBot() {
                     }
                     userMessageCooldown.set(userKey, now);
 
-                    console.log(`📩 Mensaje recibido de ${clientIdentifier}: ${text}`);
+                    console.log(`📩 Mensaje recibido de ${clientIdentifier}: ${text.substring(0, 50)}...`);
 
                     try {
                         await handleClientMessage(from, text, clientIdentifier, msg);
@@ -290,6 +496,9 @@ async function handleClientMessage(from, text, clientIdentifier, msg) {
     const botJid = sock.user?.id ? sock.user.id.split(':')[0] : null;
     let cleanBotPhone = cleanPhoneNumber(botJid);
 
+    console.log(`🔍 Procesando mensaje de: ${clientIdentifier}`);
+    console.log(`🔍 Texto: "${text}"`);
+
     let commerce = null;
     try {
         const { data, error } = await supabase
@@ -300,6 +509,9 @@ async function handleClientMessage(from, text, clientIdentifier, msg) {
         
         if (!error && data) {
             commerce = data;
+            console.log(`✅ Comercio encontrado: ${commerce.business_name}`);
+        } else {
+            console.log(`⚠️ Comercio no encontrado para: ${cleanBotPhone}`);
         }
     } catch (err) {
         console.error('⚠️ Error consultando comercio en Supabase:', err.message);
@@ -308,137 +520,265 @@ async function handleClientMessage(from, text, clientIdentifier, msg) {
     const businessName = commerce?.business_name || "nuestro establecimiento";
     const lower = text.toLowerCase().trim();
 
-    // Ver si el usuario está en proceso de confirmar datos pendientes de factura
     const currentState = userBillingState.get(clientIdentifier);
+    console.log(`📊 Estado actual del usuario: ${currentState ? '✅ Tiene datos pendientes' : '❌ Sin datos'}`);
 
     if (lower === 'confirmar' && currentState) {
+        console.log('🔔 USUARIO CONFIRMÓ FACTURA');
+        
+        const requiredFields = ['legal_name', 'tax_id', 'email', 'zip', 'amount'];
+        const missingFields = requiredFields.filter(field => !currentState[field]);
+        
+        if (missingFields.length > 0) {
+            console.log(`❌ Faltan campos: ${missingFields.join(', ')}`);
+            await sendMessageWithRetry(from, 
+                `❌ *Faltan datos para timbrar la factura:*\n` +
+                `${missingFields.map(f => `• ${f}`).join('\n')}\n\n` +
+                `Por favor, envía todos los datos nuevamente en un solo mensaje:\n` +
+                `RFC, Nombre, CP, Correo, Monto y Concepto.`
+            );
+            userBillingState.delete(clientIdentifier);
+            return;
+        }
+
         await sendMessageWithRetry(from, '⏳ Generando y timbrando tu factura ante el SAT, por favor espera un momento...');
         
         try {
-            // 1. Crear o reusar cliente en Facturapi
-            const customer = await facturapi.customers.create({
+            console.log('📊 Datos a timbrar:', JSON.stringify(currentState, null, 2));
+            
+            const customer = await createFacturapiCustomer({
                 legal_name: currentState.legal_name,
                 tax_id: currentState.tax_id,
-                tax_system: currentState.tax_system || '601', // General de Ley Personas Morales por defecto
+                tax_system: currentState.tax_system || null,
                 zip: currentState.zip,
-                email: currentState.email,
+                email: currentState.email
             });
+            console.log(`✅ Cliente Facturapi v2 creado: ${customer.id}`);
 
-            // 2. Emitir CFDI 4.0
-            const invoice = await facturapi.invoices.create({
-                customer: customer.id,
-                use: currentState.use || 'G03',
-                payment_form: '01', // Efectivo o ajustable según requieras
-                payment_method: 'PUE',
-                items: [
-                    {
-                        quantity: 1,
-                        product: {
-                            description: currentState.concept || 'Consumo general',
-                            product_key: '01010101', // Clave genérica SAT
-                            price: parseFloat(currentState.amount) || 100.00,
-                            unit_key: 'ACT'
-                        }
+            const invoice = await createFacturapiInvoice(customer.id, {
+                use: currentState.use || null,
+                concept: currentState.concept || 'Consumo general',
+                amount: currentState.amount || 100.00
+            }, currentState.tax_id);
+            console.log(`✅ Factura timbrada v2: ${invoice.id}`);
+
+            // ============================================
+            // CORRECCIÓN FINAL: Obtener la factura completa usando el ID
+            // ============================================
+            const fullInvoice = await getFacturapiInvoice(invoice.id);
+            
+            console.log('📄 RESPUESTA COMPLETA DE FACTURAPI:', JSON.stringify(fullInvoice, null, 2));
+            
+            if (!fullInvoice.id) {
+                console.error("❌ ERROR CRÍTICO: Facturapi no devolvió un ID válido");
+            }
+            // ============================================
+            // DESCARGAR Y ENVIAR PDF Y XML CON AXIOS
+            // ============================================
+            try {
+                console.log('⬇️ Descargando PDF y XML desde Facturapi...');
+                
+                const secretKey = process.env.FACTURAPI_SECRET_KEY;
+                const authHeader = 'Basic ' + Buffer.from(secretKey + ':').toString('base64');
+                const fileNameBase = `Factura_${fullInvoice.folio_number || fullInvoice.id}`;
+                
+                // Usamos la variable de destino correcta de tu scope (ej. remoteJid o msg.key.remoteJid)
+                const targetJid = msg.key.remoteJid; 
+
+                // 1. Enviar PDF
+                const pdfResponse = await axios.get(`https://www.facturapi.io/v2/invoices/${fullInvoice.id}/pdf`, {
+                    responseType: 'arraybuffer',
+                    headers: { 'Authorization': authHeader }
+                });
+
+                await sock.sendMessage(targetJid, {
+                    document: Buffer.from(pdfResponse.data),
+                    mimetype: 'application/pdf',
+                    fileName: `${fileNameBase}.pdf`,
+                    caption: '📄 Aquí tienes tu factura en formato PDF.'
+                });
+                console.log('✅ PDF enviado exitosamente');
+
+                // 2. Enviar XML
+                const xmlResponse = await axios.get(`https://www.facturapi.io/v2/invoices/${fullInvoice.id}/xml`, {
+                    responseType: 'text',
+                    headers: { 
+                        'Authorization': authHeader,
+                        'Accept': 'application/xml, text/xml'
                     }
-                ]
-            });
+                });
 
-            // Limpiar estado temporal
+                await sock.sendMessage(targetJid, {
+                    document: Buffer.from(xmlResponse.data, 'utf-8'),
+                    mimetype: 'application/xml',
+                    fileName: `${fileNameBase}.xml`,
+                    caption: '📦 Aquí tienes tu factura en formato XML.'
+                });
+                console.log('✅ XML enviado exitosamente');
+
+            } catch (sendErr) {
+                console.error('⚠️ Error descargando/enviando documentos por WhatsApp:', sendErr.response?.data || sendErr.message);
+            }
+            // ============================================
+            // GUARDAR EN SUPABASE
+            // ============================================
+            const { error: saveError } = await supabase
+                .from('invoice')
+                .insert({
+                    id: fullInvoice.id,
+                    commerceId: commerce?.id || null,
+                    razon_social: currentState.legal_name,
+                    customerRfc: currentState.tax_id,
+                    customerEmail: currentState.email,
+                    client_email: currentState.email,
+                    amount: parseFloat(currentState.amount) || 0,
+                    concepto: currentState.concept || 'Consumo general',
+                    facturapiId: fullInvoice.id,
+                    status: 'STAMPED',
+                    createdAt: new Date().toISOString()
+                });
+
+            if (saveError) {
+                console.error('⚠️ Error guardando en Supabase:', saveError);
+            } else {
+                console.log(`✅ Factura guardada en Supabase: ${fullInvoice.id}`);
+            }
+
             userBillingState.delete(clientIdentifier);
+    
+            // ============================================
+            // ENVIAR EL PDF COMO ARCHIVO ADJUNTO (YA NO ENVÍA LINKS ROTOS)
+            // ============================================
+            await downloadAndSendInvoice(from, fullInvoice, businessName);
+            
+            return; // Importante: salir aquí para no seguir al catch
 
-            await sendMessageWithRetry(from, 
-                `🎉 *¡Factura Timbrada con Éxito!*\n\n` +
-                `• *Folio UUID:* ${invoice.uuid}\n` +
-                `• *Descarga PDF:* ${invoice.verification_url}\n\n` +
-                `Gracias por tu compra en *${businessName}*.`
-            );
         } catch (facturapiError) {
-            console.error('❌ Error Facturapi al timbrar:', facturapiError);
-            await sendMessageWithRetry(from, `❌ No se pudo generar la factura: ${facturapiError.message || 'Error desconocido en el timbrado'}. Verifica tus datos fiscales.`);
+            console.error('❌ Error Facturapi v2:', facturapiError.message);
+            const errorDetail = facturapiError.response?.data?.message || facturapiError.message;
+            await sendMessageWithRetry(from, 
+                `❌ No se pudo generar la factura: ${errorDetail}\n\n` +
+                `Verifica tus datos fiscales e intenta nuevamente.`
+            );
+            return;
         }
+    }
+
+    if (lower === 'rechazar' && currentState) {
+        userBillingState.delete(clientIdentifier);
+        await sendMessageWithRetry(from, '✅ Solicitud de factura cancelada. Si necesitas ayuda, escríbenos.');
         return;
     }
 
-    if (lower.includes('factura') || lower.includes('facturar') || currentState) {
-        // Si mandó datos para facturar, usamos Gemini para estructurarlos
-        try {
-            const extractionPrompt = `Analiza el siguiente texto enviado por un cliente que solicita una factura fiscal en México:
-            "${text}"
-            
-            Extrae estrictamente en formato JSON los siguientes campos (si algún dato no viene explícitamente, pon null):
-            {
-              "tax_id": "RFC del cliente (12 o 13 caracteres, mayúsculas)",
-              "legal_name": "Nombre o Razón Social",
-              "email": "Correo electrónico",
-              "amount": "Monto numérico de la compra (solo el número)",
-              "zip": "Código postal fiscal (5 dígitos)",
-              "tax_system": "Régimen fiscal (ej. 601, 612, 626, etc., o null si no se menciona)",
-              "concept": "Concepto o número de ticket"
-            }
-            Responde ÚNICAMENTE con el objeto JSON válido, sin bloques de texto adicionales ni markdown de código.`;
+    // ... (El resto del código se mantiene igual)
+    const hasRFC = text.match(/[A-Za-zÑñ]{3,4}[0-9]{6,7}[A-Za-z0-9]{1,3}/);
+    const hasEmail = text.includes('@');
+    const hasZip = text.match(/\b\d{5}\b/);
+    
+    const isFacturaRequest = lower.includes('factura') || 
+                             lower.includes('facturar') || 
+                             lower.includes('solicitar') ||
+                             lower.includes('cfdi') ||
+                             lower.includes('timbrar') ||
+                             lower.includes('facturacion') ||
+                             (hasRFC && hasEmail) ||
+                             (hasRFC && hasZip) ||
+                             (hasRFC && hasEmail && hasZip) ||
+                             currentState;
 
-            const aiResult = await model.generateContent(extractionPrompt);
-            let jsonText = aiResult.response.text().trim();
-            jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
-            
-            const parsedData = JSON.parse(jsonText);
-
-            if (parsedData.tax_id && parsedData.legal_name) {
-                // Guardar temporalmente el estado para confirmación
-                userBillingState.set(clientIdentifier, parsedData);
-
-                await sendMessageWithRetry(from, 
-                    `📄 *Revisa tus datos fiscales para ${businessName}*\n\n` +
-                    `• *RFC:* ${parsedData.tax_id}\n` +
-                    `• *Razón Social:* ${parsedData.legal_name}\n` +
-                    `• *Correo:* ${parsedData.email || 'No especificado'}\n` +
-                    `• *Monto:* $${parsedData.amount || 'Por definir'}\n` +
-                    `• *C.P.:* ${parsedData.zip || 'No especificado'}\n\n` +
-                    `Si todo es correcto, responde con la palabra *CONFIRMAR* para proceder a timbrarla. Si deseas corregir algo, vuelve a enviar los datos completos.`
-                );
-                return;
-            }
-        } catch (e) {
-            console.log('⚠️ No se pudo extraer JSON completo con IA, enviando guía estándar.');
+    if (isFacturaRequest) {
+        if (currentState && !lower.includes('confirmar') && !lower.includes('rechazar')) {
+            userBillingState.delete(clientIdentifier);
         }
 
-        await sendMessageWithRetry(from, 
-            `📄 *Solicitud de Factura - ${businessName}*\n\n` +
-            `Para generar tu factura, por favor envíanos en un solo mensaje:\n` +
-            `• *RFC*\n` +
-            `• *Nombre o Razón Social*\n` +
-            `• *Código Postal*\n` +
-            `• *Correo electrónico*\n` +
-            `• *Monto y Concepto*`
-        );
+        let parsedData = null;
+        let extractionSuccess = false;
+
+        try {
+            parsedData = extractFiscalDataManual(text);
+            if (parsedData.tax_id && parsedData.tax_id.length >= 12) {
+                extractionSuccess = true;
+            }
+        } catch (manualError) {}
+
+        if (!extractionSuccess) {
+            try {
+                const extractionPrompt = `Analiza el siguiente texto y extrae los datos fiscales en formato JSON: "${text}"`;
+                const aiResult = await model.generateContent(extractionPrompt);
+                let jsonText = aiResult.response.text().trim();
+                jsonText = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+                const geminiData = JSON.parse(jsonText);
+                
+                if (geminiData.tax_id && geminiData.tax_id.length >= 12) {
+                    parsedData = geminiData;
+                    extractionSuccess = true;
+                }
+            } catch (geminiError) {}
+        }
+
+        if (extractionSuccess && parsedData && parsedData.tax_id && parsedData.tax_id.length >= 12) {
+            userBillingState.set(clientIdentifier, parsedData);
+            await sendMessageWithRetry(from, 
+                `📄 *Revisa tus datos fiscales para ${businessName}*\n\n` +
+                `• *RFC:* ${parsedData.tax_id}\n` +
+                `• *Razón Social:* ${parsedData.legal_name || 'No especificado'}\n` +
+                `• *Correo:* ${parsedData.email || 'No especificado'}\n` +
+                `• *Monto:* $${parsedData.amount || 'Por definir'}\n` +
+                `• *C.P.:* ${parsedData.zip || 'No especificado'}\n\n` +
+                `✅ *¿Todo es correcto?* Responde con la palabra *CONFIRMAR* para timbrar.`
+            );
+            return;
+        }
+
+        await sendMessageWithRetry(from, `📄 Por favor envíanos los datos: RFC, Nombre, CP, Correo, Monto y Concepto.`);
         return;
     }
 
     try {
-        const prompt = `Eres el asistente virtual de atención al cliente de un negocio llamado "${businessName}". 
-        Un cliente te acaba de escribir por WhatsApp: "${text}".
-        Responde de manera amable, profesional y corta en español ayudándole con sus dudas generales, información del negocio o guiándolo si requiere una factura. 
-        No menciones que eres una IA de Google, compórtate como el asistente oficial del comercio.`;
-
+        const prompt = `Asistente de ${businessName}. Cliente dijo: "${text}". Responde amable.`;
         const result = await model.generateContent(prompt);
-        const response = result.response.text();
-        await sendMessageWithRetry(from, response);
+        await sendMessageWithRetry(from, result.response.text());
     } catch (geminiError) {
-        await sendMessageWithRetry(from, 
-            `👋 ¡Hola! Gracias por comunicarte con *${businessName}*.\n\n` +
-            `¿En qué podemos ayudarte hoy? Si necesitas factura, escribe la palabra *factura*.`
-        );
+        await sendMessageWithRetry(from, `👋 ¡Hola! ¿En qué podemos ayudarte? Si necesitas factura, escribe *solicitar factura*.`);
     }
 }
 
-process.on('SIGINT', async () => {
-    if (sock) { try { await sock.ws.close(); } catch (err) {} }
-    process.exit(0);
-});
+// ============================================
+// FUNCIÓN PARA DESCARGAR PDF Y ENVIARLO COMO ARCHIVO
+// ============================================
+async function downloadAndSendInvoice(from, fullInvoice, businessName) {
+    try {
+        const pdfUrl = `https://www.facturapi.io/v2/invoices/${fullInvoice.id}/pdf`;
+        console.log(`⬇️ Descargando PDF desde: ${pdfUrl}`);
 
-process.on('SIGTERM', async () => {
-    if (sock) { try { await sock.ws.close(); } catch (err) {} }
-    process.exit(0);
-});
+        const response = await axios.get(pdfUrl, {
+            headers: {
+                'Authorization': `Bearer ${FACTURAPI_API_KEY}`
+            },
+            responseType: 'arraybuffer'
+        });
+
+        const buffer = Buffer.from(response.data, 'binary');
+        const fileName = `Factura_${fullInvoice.id}.pdf`;
+
+        await sock.sendMessage(from, { 
+            document: buffer,
+            fileName: fileName,
+            mimetype: 'application/pdf',
+            caption: `🎉 *¡Factura Timbrada con Éxito!*\n\n*UUID:* ${fullInvoice.id}\n*Total:* $${fullInvoice.total}\n\nEl archivo PDF se ha adjuntado a este mensaje.`
+        });
+
+        console.log(`✅ PDF enviado exitosamente a ${from}`);
+        return true;
+    } catch (error) {
+        console.error('❌ Error descargando o enviando PDF:', error.message);
+        await sendMessageWithRetry(from, 
+            `🎉 *¡Factura Timbrada con Éxito!*\n\n*UUID:* ${fullInvoice.id}\n*Total:* $${fullInvoice.total}\n\n*No se pudo adjuntar el PDF automáticamente. Copia este UUID y descárgalo desde tu portal de Facturapi.*`
+        );
+        return false;
+    }
+}
+
+
 
 startBot().catch(console.error);
