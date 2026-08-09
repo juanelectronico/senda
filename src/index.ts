@@ -361,13 +361,15 @@ app.post('/webhook/whatsapp', async (req: Request, res: Response): Promise<any> 
 // ===== INICIO AUTOMÁTICO DEL SERVIDOR =====
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
-app.listen(PORT, '0.0.0.0', async () => {
-    await initSupabase();
+app.listen(PORT, '0.0.0.0', () => {
     console.log('========================================');
     console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
     console.log(`🌐 Health: http://localhost:${PORT}/health`);
     console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
     console.log('========================================');
+
+    // Inicializar Supabase en segundo plano sin bloquear el arranque
+    initSupabase().catch(err => console.error('❌ Error en initSupabase async:', err));
 });
 
 export default app;
