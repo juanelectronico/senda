@@ -14,7 +14,7 @@ import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import paymentRoutes from './routes/payment.routes.js';
 
 // 👇 NUEVO IMPORT (AGREGADO)
-import { FiscalInterceptor } from './features/fiscal/interceptor';
+import { FiscalInterceptor } from './features/fiscal/interceptor.js';
 
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
