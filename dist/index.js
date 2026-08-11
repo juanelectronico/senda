@@ -1,6 +1,7 @@
 // ===== WEBSOCKET (Para Baileys) =====
 import { WebSocket } from 'ws';
 global.WebSocket = WebSocket;
+
 // ===== IMPORTS =====
 import 'dotenv/config';
 import express from 'express';
@@ -8,18 +9,28 @@ import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+
 // Importación correcta para MercadoPago en ESM
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
 import paymentRoutes from './routes/payment.routes.js';
+
+// 👇 IMPORTACIÓN DEL BOT DE WHATSAPP
+import { startWhatsAppBotForCommerce } from './services/whatsapp.service.js';
+
 // 👇 NUEVO IMPORT (AGREGADO)
 import { FiscalInterceptor } from './features/fiscal/interceptor.js';
+
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
 console.log('🚀 Iniciando Senda API...');
 const app = express();
-// ===== PASO 1: ALMACÉN DE QRs EN MEMORIA =====
+
+// ===== PASO 1: ALMACÉN DE QRs EN MEMORIA Y CONTROL DE CONCURRENCIA =====
 export const activeQrs = new Map();
+const startingBots = new Set(); // 🔒 Control para evitar múltiples intentos simultáneos de inicio
+
 // ===== MIDDLEWARE =====
 app.use(cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
@@ -27,14 +38,19 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 // ===== INTERCEPTOR FISCAL =====
 const fiscalInterceptor = new FiscalInterceptor();
+
 // ===== RUTAS DE PAGO =====
 app.use('/api/payment', paymentRoutes);
+
 // ===== STATIC FILES =====
 const publicDir = path.join(process.cwd(), 'public');
 app.use(express.static(publicDir));
+
 app.get('/', (req, res) => res.redirect('/register.html'));
+
 // ===== HEALTH CHECK =====
 app.get('/health', (req, res) => {
     res.json({
@@ -43,23 +59,23 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+
 // ===== INICIALIZAR MERCADO PAGO =====
 let mercadopagoClient = null;
 try {
     const accessToken = process.env.MP_ACCESS_TOKEN;
     if (!accessToken) {
         console.warn('⚠️ MP_ACCESS_TOKEN no configurado');
-    }
-    else {
+    } else {
         mercadopagoClient = new MercadoPagoConfig({
             accessToken: accessToken
         });
         console.log('✅ MercadoPago inicializado');
     }
-}
-catch (error) {
+} catch (error) {
     console.error('❌ Error MercadoPago:', error);
 }
+
 // ===== INICIALIZAR SUPABASE =====
 let supabase = null;
 async function initSupabase() {
@@ -68,12 +84,12 @@ async function initSupabase() {
         supabase = module.supabase;
         console.log('✅ Supabase inicializado');
         return true;
-    }
-    catch (error) {
+    } catch (error) {
         console.error('❌ Error Supabase:', error);
         return false;
     }
 }
+
 // ===== VALIDACIÓN DE CERTIFICADOS SAT =====
 function validarSAT(cer, key, pass) {
     const errors = [];
@@ -85,45 +101,54 @@ function validarSAT(cer, key, pass) {
         errors.push('La contraseña es obligatoria');
     return { valid: errors.length === 0, errors };
 }
+
 // ===== RUTA DE REGISTRO =====
 app.post('/api/commerce/register', async (req, res) => {
     try {
         console.log('📝 Registro de comercio');
         const { rfc, business_name, tax_regime, zip_code, phone, email, csd_cer_base64, csd_key_base64, csd_password } = req.body;
+        
         if (!rfc || !business_name || !tax_regime || !zip_code || !phone || !email) {
             return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
         }
+
         console.log('🔍 Validando certificados SAT...');
         const satValidation = validarSAT(csd_cer_base64, csd_key_base64, csd_password);
         if (!satValidation.valid) {
             return res.status(400).json({ success: false, error: 'Certificados SAT inválidos', details: satValidation.errors });
         }
+
         if (!supabase) {
             await initSupabase();
             if (!supabase)
                 return res.status(503).json({ success: false, error: 'Base de datos no disponible' });
         }
+
         if (!mercadopagoClient) {
             return res.status(503).json({ success: false, error: 'Servicio de pagos no disponible' });
         }
+
         console.log('💾 Guardando en Supabase...');
         const { data, error } = await supabase
             .from('commerce')
             .insert({
-            rfc, business_name, tax_regime, zip_code, phone, email,
-            csd_cer_base64, csd_key_base64, csd_password,
-            is_active: false, is_premium: false, invoice_count: 0,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-        })
+                rfc, business_name, tax_regime, zip_code, phone, email,
+                csd_cer_base64, csd_key_base64, csd_password,
+                is_active: false, is_premium: false, invoice_count: 0,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            })
             .select()
             .single();
+
         if (error) {
             console.error('❌ Error Supabase:', error);
             return res.status(500).json({ success: false, error: 'Error al guardar en base de datos', details: error.message });
         }
+
         console.log('✅ Comercio registrado ID:', data.id);
         console.log('🔄 Generando preferencia de pago...');
+
         let initPoint = null;
         try {
             const protocol = req.headers['x-forwarded-proto'] || req.protocol || 'https';
@@ -133,43 +158,42 @@ app.post('/api/commerce/register', async (req, res) => {
             const result = await preference.create({
                 body: {
                     items: [{
-                            id: 'senda_register_001',
-                            title: 'Registro Senda - Facturación SAT',
-                            description: 'Activación de cuenta Senda',
-                            quantity: 1,
-                            unit_price: 50.00,
-                            currency_id: 'MXN'
-                        }],
+                        id: 'senda_register_001',
+                        title: 'Registro Senda - Facturación SAT',
+                        description: 'Activación de cuenta Senda',
+                        quantity: 1,
+                        unit_price: 50.00,
+                        currency_id: 'MXN'
+                    }],
                     payer: { email: email, name: business_name },
                     external_reference: data.id.toString(),
                     back_urls: {
                         success: `${baseUrl}/payment/success?id=${data.id}`,
-                        failure: `${baseUrl}/payment/failure?id=${data.id}`,
-                        pending: `${baseUrl}/payment/pending?id=${data.id}`
+                        failure: `${baseUrl}/payment/failure`,
+                        pending: `${baseUrl}/payment/pending`
                     },
-                    auto_return: "approved", // 👈 Forzar el retorno automático al aprobarse
                     notification_url: `${baseUrl}/api/payment/webhook`
                 }
             });
             initPoint = result.init_point;
             console.log('✅ Preferencia creada:', result.id);
-        }
-        catch (mpError) {
+        } catch (mpError) {
             console.error('❌ Error MercadoPago:', mpError);
             return res.status(500).json({ success: false, error: 'No se pudo generar el link de pago', details: mpError.message });
         }
+
         return res.json({
             success: true,
             message: '✅ Registro exitoso. Procede al pago.',
             init_point: initPoint,
             commerce: { id: data.id, business_name: data.business_name, email: data.email, phone: data.phone }
         });
-    }
-    catch (error) {
+    } catch (error) {
         console.error('❌ Error general:', error);
         return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
+
 // ===== WEBHOOK DE MERCADO PAGO =====
 app.post('/api/payment/webhook', async (req, res) => {
     try {
@@ -194,96 +218,147 @@ app.post('/api/payment/webhook', async (req, res) => {
             }
         }
         res.status(200).json({ received: true });
-    }
-    catch (error) {
+    } catch (error) {
         console.error('❌ Webhook error:', error);
         res.status(200).json({ received: true });
     }
 });
-// ===== PASO 2: RUTA PARA LEER DEL MAPA DE QRs =====
+
+// ===== RUTA PARA LEER DEL MAPA DE QRs (CONTROLADA CONTRA BUCLES) =====
 app.get('/api/whatsapp/get-qr', async (req, res) => {
     try {
         const commerceId = req.query.id;
         if (!commerceId)
             return res.status(400).json({ success: false, error: 'Falta el ID del comercio' });
+        
         if (!supabase)
             await initSupabase();
+
         const { data: commerce, error } = await supabase
             .from('commerce')
             .select('*')
             .eq('id', commerceId)
             .single();
+
         if (error || !commerce)
             return res.status(404).json({ success: false, error: 'Comercio no encontrado' });
-        if (!commerce.is_active)
-            return res.status(403).json({ success: false, error: 'El pago aún no ha sido confirmado' });
-        // Consultar el QR guardado en memoria por Baileys
-        const qrData = activeQrs.get(commerceId);
-        if (!qrData) {
-            return res.json({ success: false, message: 'Esperando generación del QR por el bot...' });
+
+        // 1. Verificar si ya tenemos el QR guardado en memoria
+        let qrData = activeQrs.get(commerceId);
+        if (qrData) {
+            return res.json({
+                success: true,
+                message: 'QR disponible',
+                qr: qrData
+            });
         }
-        return res.json({
-            success: true,
-            message: 'Comercio activo',
-            qr: qrData
-        });
-    }
-    catch (error) {
+
+        // 2. Si el bot ya se está intentando iniciar, evitamos llamadas duplicadas concurrentes
+        if (startingBots.has(commerceId)) {
+            return res.json({ success: false, message: 'Iniciando sesión de WhatsApp, esperando código QR...' });
+        }
+
+        // 3. Marcar el bloqueo y disparar el inicio por única vez
+        startingBots.add(commerceId);
+        console.log(`🤖 Disparando bot automáticamente por única vez para el comercio ${commerceId} (${commerce.phone})`);
+        
+        startWhatsAppBotForCommerce(commerceId, commerce.phone)
+            .then(generatedQr => {
+                if (generatedQr && generatedQr !== 'ALREADY_AUTHENTICATED') {
+                    activeQrs.set(commerceId, generatedQr);
+                }
+            })
+            .catch(err => {
+                console.error(`❌ Error al arrancar bot automático para ${commerceId}:`, err);
+            })
+            .finally(() => {
+                setTimeout(() => startingBots.delete(commerceId), 15000);
+            });
+
+        return res.json({ success: false, message: 'Iniciando sesión de WhatsApp, esperando QR...' });
+    } catch (error) {
         console.error('❌ Error al obtener QR:', error);
         return res.status(500).json({ success: false, error: 'Error interno al obtener el QR' });
     }
 });
-// ===== PÁGINAS DE PAGO (ÉXITO, FALLIDO, PENDIENTE) =====
+
+
+// ===== PÁGINAS DE PAGO (ÉXITO - RENDERIZADO QR FORZADO DE URL) =====
 app.get('/payment/success', (req, res) => {
     res.send(`
         <!DOCTYPE html>
         <html>
-        <head><title>Pago Exitoso - Senda</title></head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1 style="color: green;">✅ ¡Pago Exitoso!</h1>
-            <p>Tu cuenta ha sido activada. Conectando con WhatsApp...</p>
-            <div id="qr-box">
-                <p id="status-msg">Cargando código QR de vinculación...</p>
-                <img id="qr-image" style="max-width: 300px; display:none;" alt="QR WhatsApp" />
-            </div>
-            <br><a href="/register.html">Volver al inicio</a>
-            <script>
-                const urlParams = new URLSearchParams(window.location.search);
-                const commerceId = urlParams.get('id');
+        <head>
+            <title>Pago Exitoso - Senda</title>
+            <meta charset="utf-8">
+            <style>
+                body { font-family: sans-serif; text-align: center; padding: 20px; background-color: #f4f6f8; }
+                .card { background: white; max-width: 450px; margin: 0 auto; padding: 25px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+                h1 { color: #2e7d32; font-size: 22px; margin-bottom: 15px; }
+                p { font-size: 14px; color: #666; margin-bottom: 20px; }
+                #qrcode-container { width: 250px; height: 250px; margin: 0 auto; background: #fff; border: 2px solid #eee; padding: 5px; border-radius: 5px; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+                #qrcode-container img, #qrcode-container canvas { max-width: 100%; display: block; }
+                .status { margin-top: 20px; font-weight: bold; color: #555; font-size: 13px; }
+            </style>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+        </head>
+        <body>
+            <div class="card">
+                <h1>✅ ¡Pago Exitoso!</h1>
+                <p>Tu cuenta ha sido activada. Escanea el código QR con tu WhatsApp:</p>
                 
-                function checkQR() {
-                    if (commerceId) {
-                        fetch('/api/whatsapp/get-qr?id=' + commerceId)
-                            .then(res => res.json())
-                            .then(data => {
-                                if(data.success && data.qr) {
-                                    document.getElementById('qr-image').src = data.qr;
-                                    document.getElementById('qr-image').style.display = 'block';
-                                    document.getElementById('status-msg').innerText = 'Escanea este código con tu WhatsApp:';
-                                } else {
-                                    setTimeout(checkQR, 3000); // Reintentar cada 3 segundos hasta que el bot lo genere
+                <div id="qrcode-container">
+                    <div id="qrcode"></div>
+                </div>
+
+                <div id="status-msg" class="status">⏳ Esperando generación del QR (puede tardar unos segundos)...</div>
+                
+                <br><br><a href="/register.html" style="color: #666; text-decoration: none; font-size: 12px;">← Volver al inicio</a>
+            </div>
+            <script>
+                const id = new URLSearchParams(window.location.search).get('id');
+                let qrcodeInstance = null;
+                let rendered = false;
+
+                function poll() {
+                    fetch('/api/whatsapp/get-qr?id=' + id)
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.qr) {
+                                document.getElementById('status-msg').innerText = "✅ ¡QR listo para escanear!";
+                                
+                                if (!rendered) {
+                                    document.getElementById('qrcode').innerHTML = "";
+                                    try {
+                                        // Forzamos a que la librería convierta el texto/link largo de Baileys en un código QR visual
+                                        qrcodeInstance = new QRCode(document.getElementById("qrcode"), {
+                                            text: data.qr,
+                                            width: 240,
+                                            height: 240,
+                                            colorDark: "#000000",
+                                            colorLight: "#ffffff",
+                                            correctLevel: QRCode.CorrectLevel.M
+                                        });
+                                        rendered = true;
+                                    } catch (e) {
+                                        console.error("Error generando imagen QR:", e);
+                                    }
                                 }
-                            }).catch(err => {
-                                console.error(err);
-                                setTimeout(checkQR, 3000);
-                            });
-                    }
+                                setTimeout(poll, 5000);
+                            } else {
+                                if(data.message) {
+                                    document.getElementById('status-msg').innerText = data.message;
+                                }
+                                setTimeout(poll, 3000);
+                            }
+                        })
+                        .catch(() => {
+                            setTimeout(poll, 4000);
+                        });
                 }
-                checkQR();
+
+                poll();
             </script>
-        </body>
-        </html>
-    `);
-});
-app.get('/payment/failure', (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head><title>Pago Fallido</title></head>
-        <body style="font-family: Arial; text-align: center; padding: 50px;">
-            <h1 style="color: red;">❌ Pago Fallido</h1>
-            <p>Hubo un problema con tu pago. Intenta nuevamente.</p>
-            <a href="/register.html">Volver al inicio</a>
         </body>
         </html>
     `);
@@ -301,6 +376,7 @@ app.get('/payment/pending', (req, res) => {
         </html>
     `);
 });
+
 // ===== WEBHOOK DE WHATSAPP CON INTERCEPTOR FISCAL =====
 app.post('/webhook/whatsapp', async (req, res) => {
     try {
@@ -311,12 +387,12 @@ app.post('/webhook/whatsapp', async (req, res) => {
             return res.json({ success: true, response: fiscalResponse, flow: 'fiscal' });
         }
         return res.json({ success: true, response: 'Hola, ¿cómo puedo ayudarte?', flow: 'default' });
-    }
-    catch (error) {
+    } catch (error) {
         console.error('❌ Error en webhook de WhatsApp:', error);
         return res.status(500).json({ success: false, error: 'Error procesando mensaje' });
     }
 });
+
 // ===== INICIO AUTOMÁTICO DEL SERVIDOR =====
 const PORT = parseInt(process.env.PORT || '8080', 10);
 app.listen(PORT, '0.0.0.0', () => {
@@ -325,7 +401,7 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Health: http://localhost:${PORT}/health`);
     console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
     console.log('========================================');
-    // Inicializar Supabase en segundo plano sin bloquear el arranque
     initSupabase().catch(err => console.error('❌ Error en initSupabase async:', err));
 });
+
 export default app;
