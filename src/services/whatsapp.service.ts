@@ -4,9 +4,9 @@ import {
   useMultiFileAuthState, 
   DisconnectReason, 
   Browsers, 
-  fetchLatestBaileysVersion,
-  WASocket
+  fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys';
+import type { WASocket } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as https from 'https';
 import * as fs from 'fs';
@@ -383,7 +383,7 @@ async function requestPairingCodeWithRetry(
         clearTimeout(timeoutId);
         sock.ev.off('connection.update', handler);
         const error = update.lastDisconnect?.error;
-        const statusCode = (error as Boom)?.output?.statusCode;
+        const statusCode = (error as any)?.output?.statusCode;
         reject(new Error(`Conexión cerrada: ${error?.message || 'Error desconocido'} (${statusCode})`));
       }
     };
@@ -437,7 +437,7 @@ function setupEventListeners(sock: WASocket, commerceId: string, cleanPhone: str
     }
 
     if (connection === 'close') {
-      const error = lastDisconnect?.error as Boom;
+      const error = lastDisconnect?.error as unknown as Boom;
       const statusCode = error?.output?.statusCode;
       const errorMessage = error?.message || 'Error desconocido';
       
