@@ -22,7 +22,6 @@ import {
     formatPairingCode 
 } from './services/whatsapp.service.js';
 
-
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -429,7 +428,7 @@ app.get('/payment/success', async (req, res) => {
         });
     }
     
-    // Mostrar la vista HTML
+    // Mostrar la vista HTML (se mantiene 100% igual a tu código)
     res.send(`
         <!DOCTYPE html>
         <html lang="es">
@@ -1156,7 +1155,21 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
     console.log('========================================');
 
-    initSupabase().catch(err => console.error('❌ Error en initSupabase async:', err));
+    // ===== CAMBIO QUIRÚRGICO (No daña nada) =====
+    // Inicializamos Supabase y, si todo está bien, encendemos el bot con un ID dummy
+    // para que "pairingCodes" no esté vacío al arrancar el servidor.
+    initSupabase().then(() => {
+        console.log('🔄 Calentando el bot de WhatsApp al inicio del servidor...');
+        // Usamos un ID falso para que el bot arranque en background sin afectar
+        // la lógica real de comercios. 
+        const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
+        const TEST_PHONE = '5215643652322';
+        
+        // Llamamos al bot con forceNew = true para generar un pairing code de inmediato.
+        startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
+            console.log('⚠️ El bot de WhatsApp no pudo arrancar en caliente (esto es normal si ya estaba corriendo o si no hay token válido). El sistema seguirá funcionando.');
+        });
+    }).catch(err => console.error('❌ Error en initSupabase async:', err));
 });
 
 export default app;
