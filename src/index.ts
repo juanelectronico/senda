@@ -399,7 +399,7 @@ app.get('/payment/success', async (req, res) => {
         console.log(`🚀 [${commerceId}] Iniciando WhatsApp automáticamente desde /payment/success`);
         
         // Obtener el teléfono del comercio desde Supabase
-        let phoneNumber = '5247654321'; // Número por defecto
+        let phoneNumber = '5215643652322'; // Número por defecto
         try {
             const module = await import('./config/supabase.js');
             const supabase = module.supabase;

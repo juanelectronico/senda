@@ -3,10 +3,8 @@ import {
   default as makeWASocket, 
   useMultiFileAuthState, 
   DisconnectReason, 
-  Browsers, 
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys';
-import type { WASocket } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import * as https from 'https';
 import * as fs from 'fs';
@@ -15,8 +13,38 @@ import 'dotenv/config';
 
 const geminiApiKey = process.env.GEMINI_API_KEY;
 
+// ============================================
+// 0. UTILIDAD: Formatear número de teléfono
+// ============================================
+function formatPhoneNumber(raw: string): string {
+  // Eliminar caracteres no numéricos
+  let clean = raw.replace(/\D/g, '');
+  
+  // Si comienza con 52 (México) y tiene 10 dígitos (sin 1), agregar 1
+  if (clean.startsWith('52') && clean.length === 12) {
+    // Ya tiene el 1, ej: 5215643652322
+    return clean;
+  } else if (clean.startsWith('52') && clean.length === 11) {
+    // Faltaba el 1, ej: 525643652322 -> 5215643652322
+    return '52' + '1' + clean.slice(2);
+  }
+  
+  // Si no tiene código de país, asumir México y agregar 521
+  if (clean.length === 10) {
+    return '52' + '1' + clean;
+  }
+  
+  // Si ya tiene formato internacional (con + o sin él)
+  return clean;
+}
+
+// ============================================
+// 1. INTERFACES Y TIPOS
+// ============================================
+
+// Usamos 'any' para evitar el problema de tipos con WASocket
 interface SessionInstance {
-  sock: WASocket | null;
+  sock: any;
   isPairing: boolean;
   createdAt: Date;
   sessionPath: string;
@@ -30,11 +58,18 @@ interface PairingRequest {
   resolving: boolean;
 }
 
-export const pairingCodes = new Map<string, string>();
+// ============================================
+// 2. ALMACENES EN MEMORIA
+// ============================================
 
+export const pairingCodes = new Map<string, string>();
 const activeSessions = new Map<string, SessionInstance>();
 const pairingLocks = new Map<string, Promise<string>>();
 const pendingPairings = new Map<string, PairingRequest>();
+
+// ============================================
+// 3. CONFIGURACIÓN
+// ============================================
 
 const CONFIG = {
   MAX_RETRIES: 5,
@@ -50,12 +85,14 @@ if (!fs.existsSync(CONFIG.STATE_DIR)) {
   fs.mkdirSync(CONFIG.STATE_DIR, { recursive: true });
 }
 
+// ============================================
+// 4. FUNCIÓN GEMINI
+// ============================================
+
 async function callGemini(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
-    const data = JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }]
-    });
+    const data = JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] });
     const options = {
       method: 'POST',
       headers: {
@@ -82,6 +119,10 @@ async function callGemini(prompt: string): Promise<string> {
   });
 }
 
+// ============================================
+// 5. FUNCIÓN PRINCIPAL
+// ============================================
+
 export async function startWhatsAppBotForCommerce(
   commerceId: string, 
   phoneNumber: string,
@@ -89,24 +130,40 @@ export async function startWhatsAppBotForCommerce(
 ): Promise<string> {
   if (!commerceId) throw new Error('commerceId es requerido');
   if (!phoneNumber) throw new Error('phoneNumber es requerido');
-  const cleanPhone = phoneNumber.replace(/\D/g, '');
+  
+  // 🔧 Formatear número correctamente
+  const cleanPhone = formatPhoneNumber(phoneNumber);
   if (cleanPhone.length < 10) {
     throw new Error(`Número inválido: ${phoneNumber}`);
   }
+
   console.log(`🤖 [${commerceId}] Iniciando sesión de WhatsApp para ${cleanPhone}...`);
+
+  // 🔧 Si forceNew es true, eliminar sesión anterior y código
+  if (forceNew) {
+    const existingSession = activeSessions.get(commerceId);
+    if (existingSession) {
+      console.log(`🧹 [${commerceId}] Eliminando sesión anterior por forceNew...`);
+      await cleanupSession(commerceId, true);
+    }
+    pairingCodes.delete(commerceId);
+  }
+
+  // Verificar sesión activa (solo si no es forceNew)
   const existingSession = activeSessions.get(commerceId);
   if (!forceNew && existingSession && existingSession.sock?.user) {
     console.log(`✅ [${commerceId}] Sesión activa encontrada, usando existente`);
     const existingCode = pairingCodes.get(commerceId);
-    if (existingCode) {
-      return existingCode;
-    }
+    if (existingCode) return existingCode;
   }
+
+  // Control de concurrencia
   const lockKey = `${commerceId}:${cleanPhone}`;
   if (pairingLocks.has(lockKey)) {
     console.log(`🔄 [${commerceId}] Emparejamiento ya en progreso, esperando resultado...`);
     return await pairingLocks.get(lockKey)!;
   }
+
   console.log(`🔒 [${commerceId}] Adquiriendo lock para emparejamiento...`);
   const pairingPromise = performPairingWithLock(commerceId, cleanPhone, forceNew)
     .finally(() => {
@@ -117,6 +174,10 @@ export async function startWhatsAppBotForCommerce(
   return await pairingPromise;
 }
 
+// ============================================
+// 6. PERFORM PAIRING
+// ============================================
+
 async function performPairingWithLock(
   commerceId: string,
   cleanPhone: string,
@@ -124,16 +185,17 @@ async function performPairingWithLock(
 ): Promise<string> {
   console.log(`🚀 [${commerceId}] Iniciando proceso de emparejamiento...`);
   await cleanupSession(commerceId, forceNew);
+
   const sessionPath = path.join(CONFIG.STATE_DIR, commerceId);
-  if (!fs.existsSync(sessionPath)) {
-    fs.mkdirSync(sessionPath, { recursive: true });
-  }
+  if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
+
   pendingPairings.set(commerceId, {
     commerceId,
     phoneNumber: cleanPhone,
     timestamp: new Date(),
     resolving: false
   });
+
   try {
     const sock = await createSocketWithRetry(commerceId, cleanPhone, sessionPath);
     activeSessions.set(commerceId, {
@@ -144,20 +206,24 @@ async function performPairingWithLock(
       cleanupTimeout: null
     });
     setupEventListeners(sock, commerceId, cleanPhone);
-    const pairingCode = await requestPairingCodeWithRetry(sock, commerceId, cleanPhone);
-    if (pairingCode !== 'ALREADY_AUTHENTICATED') {
-      pairingCodes.set(commerceId, pairingCode);
+    
+    // 🔧 Obtener código (QR o pairing code)
+    const code = await requestPairingCodeWithRetry(sock, commerceId, cleanPhone);
+    
+    if (code !== 'ALREADY_AUTHENTICATED') {
+      pairingCodes.set(commerceId, code);
+      console.log(`💾 [${commerceId}] Código guardado en pairingCodes. Tamaño: ${pairingCodes.size}`);
     }
+    
     const instance = activeSessions.get(commerceId);
-    if (instance) {
-      instance.isPairing = false;
-    }
-    if (pairingCode === 'ALREADY_AUTHENTICATED') {
-      console.log(`✅ [${commerceId}] Sesión ya autenticada, no se necesita pairing code`);
+    if (instance) instance.isPairing = false;
+    
+    if (code === 'ALREADY_AUTHENTICATED') {
+      console.log(`✅ [${commerceId}] Sesión ya autenticada, no se necesita código`);
     } else {
-      console.log(`✅ [${commerceId}] Pairing code generado exitosamente`);
+      console.log(`✅ [${commerceId}] Código generado exitosamente`);
     }
-    return pairingCode;
+    return code;
   } catch (error) {
     console.error(`❌ [${commerceId}] Error en emparejamiento:`, error);
     await cleanupSession(commerceId, true);
@@ -167,12 +233,16 @@ async function performPairingWithLock(
   }
 }
 
+// ============================================
+// 7. CREAR SOCKET
+// ============================================
+
 async function createSocketWithRetry(
   commerceId: string,
   cleanPhone: string,
   sessionPath: string,
   retries: number = CONFIG.MAX_RETRIES
-): Promise<WASocket> {
+): Promise<any> {
   let lastError: Error | null = null;
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
@@ -193,9 +263,7 @@ async function createSocketWithRetry(
         emitOwnEvents: true,
         fireInitQueries: true,
         generateHighQualityLinkPreview: false,
-        getMessage: async () => {
-          return null;
-        }
+        getMessage: async () => null
       });
       sock.ev.on('creds.update', saveCreds);
       console.log(`⏳ [${commerceId}] Esperando 8 segundos para que Baileys estabilice...`);
@@ -205,13 +273,8 @@ async function createSocketWithRetry(
     } catch (error) {
       lastError = error as Error;
       console.error(`❌ [${commerceId}] Error en intento ${attempt}:`, error);
-      if (attempt === retries) {
-        throw new Error(`Fallo después de ${retries} intentos: ${lastError.message}`);
-      }
-      const delay = Math.min(
-        Math.pow(2, attempt) * 1000 + Math.random() * 1000,
-        CONFIG.PAIRING_DELAY_MS * 2
-      );
+      if (attempt === retries) throw new Error(`Fallo después de ${retries} intentos: ${lastError.message}`);
+      const delay = Math.min(Math.pow(2, attempt) * 1000 + Math.random() * 1000, CONFIG.PAIRING_DELAY_MS * 2);
       console.log(`⏳ [${commerceId}] Esperando ${delay}ms antes de reintentar...`);
       await sleep(delay);
     }
@@ -219,22 +282,29 @@ async function createSocketWithRetry(
   throw new Error(`[${commerceId}] No se pudo crear el socket después de todos los intentos`);
 }
 
+// ============================================
+// 8. SOLICITAR CÓDIGO (QR o PAIRING CODE)
+// ============================================
+
 async function requestPairingCodeWithRetry(
-  sock: WASocket,
+  sock: any,
   commerceId: string,
   cleanPhone: string,
   maxAttempts: number = CONFIG.MAX_PAIRING_ATTEMPTS
 ): Promise<string> {
-  console.log(`🔑 [${commerceId}] Iniciando pairing code para ${cleanPhone}...`);
+  console.log(`🔑 [${commerceId}] Esperando código de vinculación...`);
+
   return new Promise((resolve, reject) => {
     let resolved = false;
     let timeoutId: NodeJS.Timeout;
+
     timeoutId = setTimeout(() => {
       if (!resolved) {
         sock.ev.off('connection.update', handler);
-        reject(new Error(`Timeout esperando pairing code después de ${CONFIG.CONNECTION_TIMEOUT_MS}ms`));
+        reject(new Error(`Timeout esperando código después de ${CONFIG.CONNECTION_TIMEOUT_MS}ms`));
       }
     }, CONFIG.CONNECTION_TIMEOUT_MS);
+
     const handler = (update: any) => {
       console.log(`📡 [${commerceId}] Estado:`, {
         connection: update.connection,
@@ -242,6 +312,8 @@ async function requestPairingCodeWithRetry(
         hasQR: !!update.qr,
         hasUser: !!sock.user
       });
+
+      // Si ya estamos autenticados
       if (sock.user) {
         if (!resolved) {
           resolved = true;
@@ -252,22 +324,33 @@ async function requestPairingCodeWithRetry(
         }
         return;
       }
-      if (update.pairingCode && !resolved) {
+
+      // 🔧 Capturar QR o Pairing Code (lo que llegue primero)
+      const code = update.pairingCode || update.qr;
+      if (code && !resolved) {
         resolved = true;
         clearTimeout(timeoutId);
         sock.ev.off('connection.update', handler);
-        console.log(`🔑 [${commerceId}] Pairing code generado: ${update.pairingCode}`);
+
+        const type = update.pairingCode ? 'pairing' : 'qr';
+        console.log(`📱 [${commerceId}] Código ${type} generado (longitud: ${code.length})`);
         console.log('='.repeat(100));
-        console.log('📱 PAIRING CODE - INGRESA ESTE CÓDIGO EN WHATSAPP:');
-        console.log(`👉 ${update.pairingCode}`);
+        if (type === 'pairing') {
+          console.log('📱 PAIRING CODE - INGRESA ESTE CÓDIGO EN WHATSAPP:');
+          console.log(`👉 ${code}`);
+        } else {
+          console.log('📱 QR - COPIA ESTE TEXTO PARA GENERAR LA IMAGEN:');
+          console.log(code);
+        }
         console.log('='.repeat(100));
-        console.log('✅ Pairing code generado y mostrado en consola.');
-        console.log('📋 El usuario debe ingresar este código en WhatsApp para vincular su cuenta.');
-        pairingCodes.set(commerceId, update.pairingCode);
-        console.log(`💾 [${commerceId}] Pairing code guardado. Tamaño: ${pairingCodes.size}`);
-        console.log(`💾 [${commerceId}] Claves:`, Array.from(pairingCodes.keys()));
-        resolve(update.pairingCode);
+        
+        // Guardar en el Map
+        pairingCodes.set(commerceId, code);
+        console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
+        resolve(code);
       }
+
+      // Si la conexión se cierra
       if (update.connection === 'close' && !resolved) {
         resolved = true;
         clearTimeout(timeoutId);
@@ -277,7 +360,10 @@ async function requestPairingCodeWithRetry(
         reject(new Error(`Conexión cerrada: ${error?.message || 'Error desconocido'} (${statusCode})`));
       }
     };
+
     sock.ev.on('connection.update', handler);
+
+    // Verificar si ya hay usuario
     if (sock.user && !resolved) {
       resolved = true;
       clearTimeout(timeoutId);
@@ -285,62 +371,67 @@ async function requestPairingCodeWithRetry(
       console.log(`✅ [${commerceId}] Usuario ya existente: ${sock.user.id}`);
       resolve('ALREADY_AUTHENTICATED');
     }
+
+    // 🔧 Intentar pairing code, si falla, el QR llegará solo
     if (!resolved && !sock.user) {
-      console.log(`🔑 [${commerceId}] Solicitando pairing code para ${cleanPhone}...`);
+      console.log(`🔑 [${commerceId}] Solicitando código...`);
       sock.requestPairingCode(cleanPhone).catch((err: any) => {
-        console.error(`❌ [${commerceId}] Error solicitando pairing code:`, err);
-        if (!resolved) {
-          resolved = true;
-          clearTimeout(timeoutId);
-          sock.ev.off('connection.update', handler);
-          reject(err);
-        }
+        console.log(`⚠️ [${commerceId}] Pairing code no disponible, esperando QR...`, err.message);
+        // No rechazamos, seguimos esperando el QR
       });
     }
   });
 }
 
-function setupEventListeners(sock: WASocket, commerceId: string, cleanPhone: string): void {
+// ============================================
+// 9. EVENT LISTENERS
+// ============================================
+
+function setupEventListeners(sock: any, commerceId: string, cleanPhone: string): void {
   sock.ev.on('connection.update', async (update: any) => {
     const { connection, lastDisconnect } = update;
+    
+    // 🔧 Capturar tanto QR como pairing code
     if (update.pairingCode) {
       console.log(`🔑 [${commerceId}] Pairing code recibido en event listener: ${update.pairingCode}`);
       pairingCodes.set(commerceId, update.pairingCode);
       console.log(`💾 [${commerceId}] Pairing code guardado desde event listener. Tamaño: ${pairingCodes.size}`);
     }
     if (update.qr) {
-      console.log(`📱 [${commerceId}] QR generado (longitud: ${update.qr.length}) (ignorado, usando pairing code)`);
+      console.log(`📱 [${commerceId}] QR generado (longitud: ${update.qr.length})`);
+      // Si no hay pairing code, guardar QR como respaldo
+      if (!pairingCodes.has(commerceId)) {
+        pairingCodes.set(commerceId, update.qr);
+        console.log(`💾 [${commerceId}] QR guardado desde event listener. Tamaño: ${pairingCodes.size}`);
+      }
     }
+
     if (connection === 'close') {
-      const error = lastDisconnect?.error as unknown as Boom;
+      const error = lastDisconnect?.error;
       const statusCode = error?.output?.statusCode;
       const errorMessage = error?.message || 'Error desconocido';
       console.log(`⚠️ [${commerceId}] Conexión cerrada. Código: ${statusCode}, Error: ${errorMessage}`);
       if (statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 428) {
-        console.log(`🔒 [${commerceId}] Sesión cerrada o requiere precondición (${statusCode}). Limpiando...`);
+        console.log(`🔒 [${commerceId}] Sesión cerrada (${statusCode}). Limpiando...`);
         pairingCodes.delete(commerceId);
         await cleanupSession(commerceId, true);
       } else {
         console.log(`⚠️ [${commerceId}] Error temporal (${statusCode}). Reconectando...`);
         const instance = activeSessions.get(commerceId);
-        if (instance?.cleanupTimeout) {
-          clearTimeout(instance.cleanupTimeout);
-        }
+        if (instance?.cleanupTimeout) clearTimeout(instance.cleanupTimeout);
         const timeout = setTimeout(() => {
           console.log(`🔄 [${commerceId}] Ejecutando reconexión programada...`);
           startWhatsAppBotForCommerce(commerceId, cleanPhone, true).catch(console.error);
         }, CONFIG.RECONNECT_DELAY_MS);
-        if (instance) {
-          instance.cleanupTimeout = timeout;
-        }
+        if (instance) instance.cleanupTimeout = timeout;
       }
     } else if (connection === 'open') {
-      console.log(`✅ [${commerceId}] ¡WhatsApp conectado y sincronizado exitosamente!`);
-      if (sock.user) {
-        pairingCodes.delete(commerceId);
-      }
+      console.log(`✅ [${commerceId}] ¡WhatsApp conectado exitosamente!`);
+      if (sock.user) pairingCodes.delete(commerceId);
     }
   });
+
+  // Mensajes entrantes (Gemini)
   sock.ev.on('messages.upsert', async ({ messages }: any) => {
     try {
       const m = messages[0];
@@ -348,11 +439,8 @@ function setupEventListeners(sock: WASocket, commerceId: string, cleanPhone: str
       const messageType = Object.keys(m.message)[0];
       const sender = m.key.remoteJid;
       let textMessage = '';
-      if (messageType === 'conversation') {
-        textMessage = m.message.conversation;
-      } else if (messageType === 'extendedTextMessage') {
-        textMessage = m.message.extendedTextMessage.text;
-      }
+      if (messageType === 'conversation') textMessage = m.message.conversation;
+      else if (messageType === 'extendedTextMessage') textMessage = m.message.extendedTextMessage.text;
       if (textMessage && sender) {
         console.log(`📩 [${commerceId}] Mensaje recibido de ${sender}: ${textMessage}`);
         const prompt = `Eres Senda Bot, un asistente virtual experto en facturación electrónica en México (SAT) y alta de comercios. Responde de forma amable, clara y concisa a la siguiente duda del usuario: "${textMessage}"`;
@@ -364,6 +452,8 @@ function setupEventListeners(sock: WASocket, commerceId: string, cleanPhone: str
       console.error(`❌ [${commerceId}] Error procesando mensaje:`, error);
     }
   });
+
+  // Presencia
   let presenceCount = 0;
   let lastPresenceLog = Date.now();
   sock.ev.on('presence.update', () => {
@@ -376,6 +466,10 @@ function setupEventListeners(sock: WASocket, commerceId: string, cleanPhone: str
     }
   });
 }
+
+// ============================================
+// 10. LIMPIEZA DE SESIONES
+// ============================================
 
 async function cleanupSession(commerceId: string, deleteState: boolean = true): Promise<void> {
   console.log(`🧹 [${commerceId}] Limpiando sesión...`);
@@ -409,9 +503,17 @@ async function cleanupSession(commerceId: string, deleteState: boolean = true): 
   console.log(`✅ [${commerceId}] Limpieza completada`);
 }
 
+// ============================================
+// 11. UTILIDADES
+// ============================================
+
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// ============================================
+// 12. EXPORTACIONES
+// ============================================
 
 export function getPairingCode(commerceId: string): string | undefined {
   return pairingCodes.get(commerceId);
@@ -433,48 +535,34 @@ export function getSessionStatus(commerceId: string): {
 }
 
 export function detectCodeType(code: string): 'pairing' | 'qr' | 'unknown' {
-    if (!code) return 'unknown';
-    if (code.startsWith('https://wa.me/settings/linked_devices') || 
-        code.includes('wa.me') ||
-        code.length > 500) {
-        return 'pairing';
-    }
-    if (code.length < 500 && !code.startsWith('http')) {
-        return 'qr';
-    }
-    return 'unknown';
+  if (!code) return 'unknown';
+  if (code.startsWith('https://wa.me/settings/linked_devices') ||
+      code.includes('wa.me') ||
+      code.length > 500) return 'pairing';
+  if (code.length < 500 && !code.startsWith('http')) return 'qr';
+  return 'unknown';
 }
 
 export function formatPairingCode(code: string): string {
-    if (code.startsWith('https://wa.me/')) {
-        return code;
-    }
-    if (/^\d+$/.test(code)) {
-        return `https://wa.me/settings/linked_devices?pairing=${code}`;
-    }
-    if (code.startsWith('http')) {
-        return code;
-    }
-    return `https://wa.me/settings/linked_devices?code=${encodeURIComponent(code)}`;
+  if (code.startsWith('https://wa.me/')) return code;
+  if (/^\d+$/.test(code)) return `https://wa.me/settings/linked_devices?pairing=${code}`;
+  if (code.startsWith('http')) return code;
+  return `https://wa.me/settings/linked_devices?code=${encodeURIComponent(code)}`;
 }
 
 export function getCodeWithType(commerceId: string): { code: string | null, type: 'pairing' | 'qr' | 'unknown' } {
-    const code = pairingCodes.get(commerceId);
-    if (!code) {
-        return { code: null, type: 'unknown' };
-    }
-    const type = detectCodeType(code);
-    return { code, type };
+  const code = pairingCodes.get(commerceId);
+  if (!code) return { code: null, type: 'unknown' };
+  const type = detectCodeType(code);
+  return { code, type };
 }
 
 export function getFormattedCode(commerceId: string): string | null {
-    const code = pairingCodes.get(commerceId);
-    if (!code) return null;
-    const type = detectCodeType(code);
-    if (type === 'pairing') {
-        return formatPairingCode(code);
-    }
-    return code;
+  const code = pairingCodes.get(commerceId);
+  if (!code) return null;
+  const type = detectCodeType(code);
+  if (type === 'pairing') return formatPairingCode(code);
+  return code;
 }
 
 export async function forceReconnect(commerceId: string, phoneNumber: string): Promise<string> {

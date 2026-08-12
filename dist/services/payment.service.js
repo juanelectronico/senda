@@ -17,8 +17,8 @@ export const crearPreferenciaPago = async (commerceId, email) => {
             payer: { email: email },
             // Estas URLs deberán actualizarse cuando tengas tu dominio público
             back_urls: {
-                success: 'https://tusenda.com/success',
-                failure: 'https://tusenda.com/failure'
+                success: 'http://localhost:8080/payment/success',
+                failure: 'http://localhost:8080/payment/failure'
             },
             external_reference: commerceId,
             auto_return: 'approved'
