@@ -5,7 +5,6 @@ import {
   DisconnectReason, 
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys';
-import { Boom } from '@hapi/boom';
 import * as https from 'https';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,32 +16,16 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 // 0. UTILIDAD: Formatear número de teléfono
 // ============================================
 function formatPhoneNumber(raw: string): string {
-  // Eliminar caracteres no numéricos
   let clean = raw.replace(/\D/g, '');
-  
-  // Si comienza con 52 (México) y tiene 10 dígitos (sin 1), agregar 1
-  if (clean.startsWith('52') && clean.length === 12) {
-    // Ya tiene el 1, ej: 5215643652322
-    return clean;
-  } else if (clean.startsWith('52') && clean.length === 11) {
-    // Faltaba el 1, ej: 525643652322 -> 5215643652322
-    return '52' + '1' + clean.slice(2);
-  }
-  
-  // Si no tiene código de país, asumir México y agregar 521
-  if (clean.length === 10) {
-    return '52' + '1' + clean;
-  }
-  
-  // Si ya tiene formato internacional (con + o sin él)
+  if (clean.startsWith('52') && clean.length === 12) return clean;
+  if (clean.startsWith('52') && clean.length === 11) return '52' + '1' + clean.slice(2);
+  if (clean.length === 10) return '52' + '1' + clean;
   return clean;
 }
 
 // ============================================
 // 1. INTERFACES Y TIPOS
 // ============================================
-
-// Usamos 'any' para evitar el problema de tipos con WASocket
 interface SessionInstance {
   sock: any;
   isPairing: boolean;
@@ -61,7 +44,6 @@ interface PairingRequest {
 // ============================================
 // 2. ALMACENES EN MEMORIA
 // ============================================
-
 export const pairingCodes = new Map<string, string>();
 const activeSessions = new Map<string, SessionInstance>();
 const pairingLocks = new Map<string, Promise<string>>();
@@ -70,7 +52,6 @@ const pendingPairings = new Map<string, PairingRequest>();
 // ============================================
 // 3. CONFIGURACIÓN
 // ============================================
-
 const CONFIG = {
   MAX_RETRIES: 5,
   PAIRING_DELAY_MS: 5000,
@@ -88,7 +69,6 @@ if (!fs.existsSync(CONFIG.STATE_DIR)) {
 // ============================================
 // 4. FUNCIÓN GEMINI
 // ============================================
-
 async function callGemini(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiApiKey}`;
@@ -120,9 +100,8 @@ async function callGemini(prompt: string): Promise<string> {
 }
 
 // ============================================
-// 5. FUNCIÓN PRINCIPAL
+// 5. FUNCIÓN PRINCIPAL (CON LIMPIEZA PERMANENTE)
 // ============================================
-
 export async function startWhatsAppBotForCommerce(
   commerceId: string, 
   phoneNumber: string,
@@ -131,7 +110,6 @@ export async function startWhatsAppBotForCommerce(
   if (!commerceId) throw new Error('commerceId es requerido');
   if (!phoneNumber) throw new Error('phoneNumber es requerido');
   
-  // 🔧 Formatear número correctamente
   const cleanPhone = formatPhoneNumber(phoneNumber);
   if (cleanPhone.length < 10) {
     throw new Error(`Número inválido: ${phoneNumber}`);
@@ -139,19 +117,17 @@ export async function startWhatsAppBotForCommerce(
 
   console.log(`🤖 [${commerceId}] Iniciando sesión de WhatsApp para ${cleanPhone}...`);
 
-  // 🔧 Si forceNew es true, eliminar sesión anterior y código
-  if (forceNew) {
-    const existingSession = activeSessions.get(commerceId);
-    if (existingSession) {
-      console.log(`🧹 [${commerceId}] Eliminando sesión anterior por forceNew...`);
-      await cleanupSession(commerceId, true);
-    }
+  // 🔹 SIEMPRE limpiar sesión si forceNew es true O si el número cambió
+  const existingSession = activeSessions.get(commerceId);
+  if (forceNew || (existingSession && existingSession.sock?.user && existingSession.sock.user.id !== cleanPhone)) {
+    console.log(`🧹 [${commerceId}] Limpiando sesión anterior (forceNew=${forceNew})...`);
+    await cleanupSession(commerceId, true);
     pairingCodes.delete(commerceId);
   }
 
-  // Verificar sesión activa (solo si no es forceNew)
-  const existingSession = activeSessions.get(commerceId);
-  if (!forceNew && existingSession && existingSession.sock?.user) {
+  // Verificar si ya hay sesión activa (después de posible limpieza)
+  const sessionAfterCleanup = activeSessions.get(commerceId);
+  if (!forceNew && sessionAfterCleanup && sessionAfterCleanup.sock?.user) {
     console.log(`✅ [${commerceId}] Sesión activa encontrada, usando existente`);
     const existingCode = pairingCodes.get(commerceId);
     if (existingCode) return existingCode;
@@ -165,7 +141,7 @@ export async function startWhatsAppBotForCommerce(
   }
 
   console.log(`🔒 [${commerceId}] Adquiriendo lock para emparejamiento...`);
-  const pairingPromise = performPairingWithLock(commerceId, cleanPhone, forceNew)
+  const pairingPromise = performPairingWithLock(commerceId, cleanPhone, true) // 👈 SIEMPRE forceNew true para generar nuevo código
     .finally(() => {
       pairingLocks.delete(lockKey);
       console.log(`🔓 [${commerceId}] Lock liberado`);
@@ -177,7 +153,6 @@ export async function startWhatsAppBotForCommerce(
 // ============================================
 // 6. PERFORM PAIRING
 // ============================================
-
 async function performPairingWithLock(
   commerceId: string,
   cleanPhone: string,
@@ -207,12 +182,11 @@ async function performPairingWithLock(
     });
     setupEventListeners(sock, commerceId, cleanPhone);
     
-    // 🔧 Obtener código (QR o pairing code)
     const code = await requestPairingCodeWithRetry(sock, commerceId, cleanPhone);
     
     if (code !== 'ALREADY_AUTHENTICATED') {
       pairingCodes.set(commerceId, code);
-      console.log(`💾 [${commerceId}] Código guardado en pairingCodes. Tamaño: ${pairingCodes.size}`);
+      console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
     }
     
     const instance = activeSessions.get(commerceId);
@@ -236,7 +210,6 @@ async function performPairingWithLock(
 // ============================================
 // 7. CREAR SOCKET
 // ============================================
-
 async function createSocketWithRetry(
   commerceId: string,
   cleanPhone: string,
@@ -285,7 +258,6 @@ async function createSocketWithRetry(
 // ============================================
 // 8. SOLICITAR CÓDIGO (QR o PAIRING CODE)
 // ============================================
-
 async function requestPairingCodeWithRetry(
   sock: any,
   commerceId: string,
@@ -313,7 +285,6 @@ async function requestPairingCodeWithRetry(
         hasUser: !!sock.user
       });
 
-      // Si ya estamos autenticados
       if (sock.user) {
         if (!resolved) {
           resolved = true;
@@ -325,7 +296,6 @@ async function requestPairingCodeWithRetry(
         return;
       }
 
-      // 🔧 Capturar QR o Pairing Code (lo que llegue primero)
       const code = update.pairingCode || update.qr;
       if (code && !resolved) {
         resolved = true;
@@ -344,13 +314,11 @@ async function requestPairingCodeWithRetry(
         }
         console.log('='.repeat(100));
         
-        // Guardar en el Map
         pairingCodes.set(commerceId, code);
         console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
         resolve(code);
       }
 
-      // Si la conexión se cierra
       if (update.connection === 'close' && !resolved) {
         resolved = true;
         clearTimeout(timeoutId);
@@ -363,7 +331,6 @@ async function requestPairingCodeWithRetry(
 
     sock.ev.on('connection.update', handler);
 
-    // Verificar si ya hay usuario
     if (sock.user && !resolved) {
       resolved = true;
       clearTimeout(timeoutId);
@@ -372,12 +339,10 @@ async function requestPairingCodeWithRetry(
       resolve('ALREADY_AUTHENTICATED');
     }
 
-    // 🔧 Intentar pairing code, si falla, el QR llegará solo
     if (!resolved && !sock.user) {
       console.log(`🔑 [${commerceId}] Solicitando código...`);
       sock.requestPairingCode(cleanPhone).catch((err: any) => {
         console.log(`⚠️ [${commerceId}] Pairing code no disponible, esperando QR...`, err.message);
-        // No rechazamos, seguimos esperando el QR
       });
     }
   });
@@ -386,23 +351,18 @@ async function requestPairingCodeWithRetry(
 // ============================================
 // 9. EVENT LISTENERS
 // ============================================
-
 function setupEventListeners(sock: any, commerceId: string, cleanPhone: string): void {
   sock.ev.on('connection.update', async (update: any) => {
     const { connection, lastDisconnect } = update;
     
-    // 🔧 Capturar tanto QR como pairing code
     if (update.pairingCode) {
       console.log(`🔑 [${commerceId}] Pairing code recibido en event listener: ${update.pairingCode}`);
       pairingCodes.set(commerceId, update.pairingCode);
-      console.log(`💾 [${commerceId}] Pairing code guardado desde event listener. Tamaño: ${pairingCodes.size}`);
     }
     if (update.qr) {
       console.log(`📱 [${commerceId}] QR generado (longitud: ${update.qr.length})`);
-      // Si no hay pairing code, guardar QR como respaldo
       if (!pairingCodes.has(commerceId)) {
         pairingCodes.set(commerceId, update.qr);
-        console.log(`💾 [${commerceId}] QR guardado desde event listener. Tamaño: ${pairingCodes.size}`);
       }
     }
 
@@ -431,7 +391,6 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
     }
   });
 
-  // Mensajes entrantes (Gemini)
   sock.ev.on('messages.upsert', async ({ messages }: any) => {
     try {
       const m = messages[0];
@@ -453,7 +412,6 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
     }
   });
 
-  // Presencia
   let presenceCount = 0;
   let lastPresenceLog = Date.now();
   sock.ev.on('presence.update', () => {
@@ -470,7 +428,6 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
 // ============================================
 // 10. LIMPIEZA DE SESIONES
 // ============================================
-
 async function cleanupSession(commerceId: string, deleteState: boolean = true): Promise<void> {
   console.log(`🧹 [${commerceId}] Limpiando sesión...`);
   const instance = activeSessions.get(commerceId);
@@ -506,7 +463,6 @@ async function cleanupSession(commerceId: string, deleteState: boolean = true): 
 // ============================================
 // 11. UTILIDADES
 // ============================================
-
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -514,7 +470,6 @@ function sleep(ms: number): Promise<void> {
 // ============================================
 // 12. EXPORTACIONES
 // ============================================
-
 export function getPairingCode(commerceId: string): string | undefined {
   return pairingCodes.get(commerceId);
 }

@@ -339,16 +339,22 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
         
         console.log(`📡 [${id}] Código encontrado: ${code ? 'SÍ' : 'NO'}`);
 
-        // Si tenemos código QR
+        // Si tenemos código
         if (code) {
-            // 👇 ENVIAR EL TEXTO COMO QR (el frontend lo convierte a imagen)
-            console.log(`✅ [${id}] Enviando QR texto real de Baileys (frontend lo mostrará como imagen)`);
+            // 🔧 Detectar si es imagen (data:image), pairing o qr
+            const isImage = code.startsWith('data:image');
+            const type = isImage ? 'qr' : detectCodeType(code);
+            const isPairing = type === 'pairing';
+            const formattedCode = isPairing ? formatPairingCode(code) : code;
+
+            console.log(`✅ [${id}] Enviando código tipo: ${type}`);
+
             return res.json({
                 success: true,
-                qr: code,
-                type: 'qr',
+                qr: formattedCode,
+                type: type,
                 status: 'pending',
-                isPairing: false
+                isPairing: isPairing
             });
         }
 
@@ -389,7 +395,7 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
 });
 
 // ============================================
-// ===== PÁGINA DE PAGO EXITOSO (MEJORADA CON INICIO AUTOMÁTICO) =====
+// ===== PÁGINA DE PAGO EXITOSO (MEJORADA CON INICIO AUTOMÁTICO Y FORCE NEW) =====
 // ============================================
 app.get('/payment/success', async (req, res) => {
     const commerceId = req.query.id as string;
@@ -417,8 +423,8 @@ app.get('/payment/success', async (req, res) => {
             console.warn('⚠️ No se pudo obtener el teléfono, usando número por defecto');
         }
         
-        // Iniciar el bot de WhatsApp (esto generará el QR)
-        startWhatsAppBotForCommerce(commerceId, phoneNumber).catch(err => {
+        // 🔧 Pasar forceNew = true para limpiar sesión anterior y generar nuevo código
+        startWhatsAppBotForCommerce(commerceId, phoneNumber, true).catch(err => {
             console.error(`❌ Error al iniciar WhatsApp:`, err);
         });
     }
@@ -689,6 +695,21 @@ app.get('/payment/success', async (req, res) => {
                     height: auto;
                 }
 
+                .pairing-code-display {
+                    font-size: 48px;
+                    font-weight: bold;
+                    letter-spacing: 8px;
+                    background: #e8f5e9;
+                    color: #1b5e20;
+                    padding: 15px 20px;
+                    border-radius: 12px;
+                    border: 2px solid #4caf50;
+                    font-family: monospace;
+                    word-break: break-all;
+                    max-width: 100%;
+                    text-align: center;
+                }
+
                 @media (max-width: 640px) {
                     .card {
                         padding: 20px 16px;
@@ -699,6 +720,11 @@ app.get('/payment/success', async (req, res) => {
                     }
                     #qrCodeContainer img {
                         max-width: 160px;
+                    }
+                    .pairing-code-display {
+                        font-size: 32px;
+                        letter-spacing: 4px;
+                        padding: 10px 12px;
                     }
                 }
             </style>
@@ -805,7 +831,46 @@ app.get('/payment/success', async (req, res) => {
                 hideError();
                 qrContainer.className = 'qr-container ready';
 
-                if (type === 'pairing') {
+                // 🔧 Si es pairing code (código de 8 dígitos o enlace de WhatsApp)
+                if (type === 'pairing' || qrData.includes('wa.me/settings/linked_devices') || qrData.includes('wa.me')) {
+                    // Intentar extraer código de 8 dígitos si está en el enlace
+                    let displayCode = qrData;
+                    const match = qrData.match(/[?&](pairing|code)=([^&]+)/);
+                    if (match && match[2].length === 8) {
+                        displayCode = match[2];
+                    } else if (/^\d{8}$/.test(qrData)) {
+                        displayCode = qrData;
+                    }
+
+                    // Si es código numérico de 8 dígitos, mostrarlo grande y claro
+                    if (/^\d{8}$/.test(displayCode)) {
+                        qrContent.innerHTML = \`
+                            <div style="text-align:center; padding:10px; width:100%;">
+                                <p style="font-size:14px; color:#64748b; margin-bottom:12px;">
+                                    🔑 Ingresa este código en WhatsApp:
+                                </p>
+                                <div class="pairing-code-display">\${escapeHtml(displayCode)}</div>
+                                <p style="font-size:13px; color:#64748b; margin-top:12px;">
+                                    📱 Abre WhatsApp → Ajustes → Dispositivos vinculados → Vincular con número
+                                </p>
+                                <button class="copy-btn" id="copyCodeBtn" style="margin-top:12px;">📋 Copiar código</button>
+                            </div>
+                        \`;
+
+                        document.getElementById('copyCodeBtn')?.addEventListener('click', () => {
+                            navigator.clipboard.writeText(displayCode).then(() => {
+                                const btn = document.getElementById('copyCodeBtn');
+                                btn.textContent = '✅ ¡Copiado!';
+                                setTimeout(() => { btn.textContent = '📋 Copiar código'; }, 2000);
+                            });
+                        });
+
+                        openWhatsAppBtn.classList.add('hidden');
+                        updateStatus('✅ Código listo', 'success');
+                        return;
+                    }
+
+                    // Si no es código numérico, mostrar enlace con botón de abrir
                     qrContent.innerHTML = \`
                         <div style="width:100%;">
                             <p style="font-size:13px; color:#64748b; margin-bottom:8px; text-align:center;">
@@ -825,20 +890,26 @@ app.get('/payment/success', async (req, res) => {
                             const btn = document.getElementById('copyPairingBtn');
                             btn.textContent = '✅ ¡Copiado!';
                             setTimeout(() => { btn.textContent = '📋 Copiar enlace'; }, 2000);
-                        }).catch(() => {
-                            const textEl = document.querySelector('.qr-text');
-                            const range = document.createRange();
-                            range.selectNode(textEl);
-                            window.getSelection().removeAllRanges();
-                            window.getSelection().addRange(range);
-                            document.execCommand('copy');
                         });
                     });
 
                     updateStatus('✅ Enlace generado', 'success');
+                    qrContainer.className = 'qr-container ready';
+                    return;
+                }
 
+                // 🔧 Si es QR estándar (imagen o texto para generar QR)
+                if (qrData.startsWith('data:image')) {
+                    qrContent.innerHTML = \`
+                        <img src="\${qrData}" alt="Código QR" style="max-width:200px; display:block; margin:0 auto;" />
+                        <p style="font-size:13px; color:#64748b; margin-top:12px; text-align:center;">
+                            Escanea con WhatsApp desde tu teléfono
+                        </p>
+                    \`;
+                    openWhatsAppBtn.classList.add('hidden');
+                    updateStatus('✅ QR listo', 'success');
                 } else {
-                    // 👇 QR REAL DE BAILEYS - Generar imagen en el frontend
+                    // Si es texto QR (no imagen), generarlo con qrcodejs
                     qrContent.innerHTML = \`
                         <div id="qrCodeContainer" style="display: flex; justify-content: center; padding: 10px;"></div>
                         <p style="font-size:13px; color:#64748b; margin-top:12px; text-align:center;">
@@ -1034,7 +1105,7 @@ app.post('/api/whatsapp/pair', async (req, res) => {
     try {
         console.log(`📱 Recibida petición de emparejamiento para comercio: ${commerceId}`);
         
-        const code = await startWhatsAppBotForCommerce(commerceId, phoneNumber);
+        const code = await startWhatsAppBotForCommerce(commerceId, phoneNumber, true);
         
         res.json({
             success: true,
