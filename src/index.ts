@@ -1155,21 +1155,21 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
     console.log('========================================');
 
-    // ===== CAMBIO QUIRÚRGICO (No daña nada) =====
-    // Inicializamos Supabase y, si todo está bien, encendemos el bot con un ID dummy
-    // para que "pairingCodes" no esté vacío al arrancar el servidor.
-    initSupabase().then(() => {
-        console.log('🔄 Calentando el bot de WhatsApp al inicio del servidor...');
-        // Usamos un ID falso para que el bot arranque en background sin afectar
-        // la lógica real de comercios. 
-        const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
-        const TEST_PHONE = '5215643652322';
-        
-        // Llamamos al bot con forceNew = true para generar un pairing code de inmediato.
-        startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
-            console.log('⚠️ El bot de WhatsApp no pudo arrancar en caliente (esto es normal si ya estaba corriendo o si no hay token válido). El sistema seguirá funcionando.');
-        });
-    }).catch(err => console.error('❌ Error en initSupabase async:', err));
+    // 🔥 DISPARADOR ÚNICO Y SEGURO PARA EL BOT
+    // Inicializamos Supabase de forma asíncrona, pero SIN BLOQUEAR el arranque del bot.
+    const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
+    const TEST_PHONE = '5215643652322';
+
+    console.log('🤖 Iniciando el bot de WhatsApp en caliente...');
+    
+    // Llamamos al bot de inmediato para que arranque, incluso si Supabase aún no responde.
+    // El bot usará el ID dummy para calentar el sistema y generar el pairing code en memoria.
+    startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
+        console.log('ℹ️ Aviso del bot en caliente (puede ser normal si ya estaba corriendo):', err.message);
+    });
+
+    // Mientras tanto, conectamos Supabase por si se necesita más adelante.
+    initSupabase().catch(err => console.error('❌ Error en initSupabase (no crítico para el arranque del bot):', err));
 });
 
 export default app;
