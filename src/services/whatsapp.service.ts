@@ -1,19 +1,51 @@
 // src/services/whatsapp.service.ts
 import { 
   default as makeWASocket, 
-  useMultiFileAuthState, 
   DisconnectReason, 
   fetchLatestBaileysVersion
 } from '@whiskeysockets/baileys';
+import { Boom } from '@hapi/boom';
 import * as https from 'https';
-import * as fs from 'fs';
 import * as path from 'path';
 import 'dotenv/config';
-
-const geminiApiKey = process.env.GEMINI_API_KEY;
+import { Firestore } from '@google-cloud/firestore';
 
 // ============================================
-// 0. UTILIDAD: Formatear número de teléfono
+// 0. INICIALIZAR FIRESTORE
+// ============================================
+let firestore: Firestore | null = null;
+try {
+  firestore = new Firestore({
+    projectId: process.env.GOOGLE_CLOUD_PROJECT || 'project-9a1eb3ec-f78b-469d-bda',
+    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS || undefined,
+  });
+  console.log('✅ Firestore inicializado para autenticación de WhatsApp');
+} catch (error) {
+  console.warn('⚠️ Firestore no disponible, usando memoria temporal (solo para pruebas)');
+}
+
+// ============================================
+// 0b. FUNCIONES DE AUTENTICACIÓN CON FIRESTORE
+// ============================================
+async function getAuthState(commerceId: string) {
+  if (!firestore) {
+    // Fallback a memoria (solo para pruebas locales)
+    return { creds: null, saveCreds: () => {} };
+  }
+
+  const docRef = firestore.collection('whatsapp_auth').doc(commerceId);
+  const doc = await docRef.get();
+  const creds = doc.exists ? doc.data() : null;
+
+  const saveCreds = async (newCreds: any) => {
+    await docRef.set(newCreds, { merge: true });
+  };
+
+  return { creds, saveCreds };
+}
+
+// ============================================
+// 0c. UTILIDAD: Formatear número de teléfono
 // ============================================
 function formatPhoneNumber(raw: string): string {
   let clean = raw.replace(/\D/g, '');
@@ -58,13 +90,10 @@ const CONFIG = {
   RECONNECT_DELAY_MS: 5000,
   SESSION_CLEANUP_DELAY_MS: 2000,
   MAX_PAIRING_ATTEMPTS: 3,
-  STATE_DIR: path.join(process.cwd(), 'auth_info_baileys'),
   CONNECTION_TIMEOUT_MS: 60000,
 };
 
-if (!fs.existsSync(CONFIG.STATE_DIR)) {
-  fs.mkdirSync(CONFIG.STATE_DIR, { recursive: true });
-}
+const geminiApiKey = process.env.GEMINI_API_KEY;
 
 // ============================================
 // 4. FUNCIÓN GEMINI
@@ -100,34 +129,39 @@ async function callGemini(prompt: string): Promise<string> {
 }
 
 // ============================================
-// 5. FUNCIÓN PRINCIPAL (CON LIMPIEZA PERMANENTE)
+// 5. FUNCIÓN PRINCIPAL
 // ============================================
 export async function startWhatsAppBotForCommerce(
-  commerceId: string, 
+  commerceId: string,
   phoneNumber: string,
   forceNew: boolean = false
 ): Promise<string> {
   if (!commerceId) throw new Error('commerceId es requerido');
   if (!phoneNumber) throw new Error('phoneNumber es requerido');
-  
+
   const cleanPhone = formatPhoneNumber(phoneNumber);
-  if (cleanPhone.length < 10) {
-    throw new Error(`Número inválido: ${phoneNumber}`);
-  }
+  if (cleanPhone.length < 10) throw new Error(`Número inválido: ${phoneNumber}`);
 
   console.log(`🤖 [${commerceId}] Iniciando sesión de WhatsApp para ${cleanPhone}...`);
 
-  // 🔹 SIEMPRE limpiar sesión si forceNew es true O si el número cambió
-  const existingSession = activeSessions.get(commerceId);
-  if (forceNew || (existingSession && existingSession.sock?.user && existingSession.sock.user.id !== cleanPhone)) {
-    console.log(`🧹 [${commerceId}] Limpiando sesión anterior (forceNew=${forceNew})...`);
-    await cleanupSession(commerceId, true);
+  // Si forceNew, limpiar sesión en memoria y Firestore
+  if (forceNew) {
+    const existingSession = activeSessions.get(commerceId);
+    if (existingSession) {
+      console.log(`🧹 [${commerceId}] Eliminando sesión anterior por forceNew...`);
+      await cleanupSession(commerceId, true);
+    }
+    // Eliminar credenciales de Firestore
+    if (firestore) {
+      await firestore.collection('whatsapp_auth').doc(commerceId).delete().catch(() => {});
+      console.log(`🗑️ [${commerceId}] Credenciales eliminadas de Firestore`);
+    }
     pairingCodes.delete(commerceId);
   }
 
-  // Verificar si ya hay sesión activa (después de posible limpieza)
-  const sessionAfterCleanup = activeSessions.get(commerceId);
-  if (!forceNew && sessionAfterCleanup && sessionAfterCleanup.sock?.user) {
+  // Verificar sesión activa
+  const existingSession = activeSessions.get(commerceId);
+  if (!forceNew && existingSession && existingSession.sock?.user) {
     console.log(`✅ [${commerceId}] Sesión activa encontrada, usando existente`);
     const existingCode = pairingCodes.get(commerceId);
     if (existingCode) return existingCode;
@@ -141,7 +175,7 @@ export async function startWhatsAppBotForCommerce(
   }
 
   console.log(`🔒 [${commerceId}] Adquiriendo lock para emparejamiento...`);
-  const pairingPromise = performPairingWithLock(commerceId, cleanPhone, true) // 👈 SIEMPRE forceNew true para generar nuevo código
+  const pairingPromise = performPairingWithLock(commerceId, cleanPhone, true)
     .finally(() => {
       pairingLocks.delete(lockKey);
       console.log(`🔓 [${commerceId}] Lock liberado`);
@@ -159,39 +193,35 @@ async function performPairingWithLock(
   forceNew: boolean
 ): Promise<string> {
   console.log(`🚀 [${commerceId}] Iniciando proceso de emparejamiento...`);
+
+  // Limpiar sesión en memoria (no borra Firestore)
   await cleanupSession(commerceId, forceNew);
 
-  const sessionPath = path.join(CONFIG.STATE_DIR, commerceId);
-  if (!fs.existsSync(sessionPath)) fs.mkdirSync(sessionPath, { recursive: true });
-
-  pendingPairings.set(commerceId, {
-    commerceId,
-    phoneNumber: cleanPhone,
-    timestamp: new Date(),
-    resolving: false
-  });
-
   try {
-    const sock = await createSocketWithRetry(commerceId, cleanPhone, sessionPath);
+    // Obtener estado de autenticación desde Firestore (o memoria)
+    const authState = await getAuthState(commerceId);
+
+    const sock = await createSocketWithRetry(commerceId, cleanPhone, authState);
     activeSessions.set(commerceId, {
       sock,
       isPairing: true,
       createdAt: new Date(),
-      sessionPath,
+      sessionPath: 'firestore',
       cleanupTimeout: null
     });
+
     setupEventListeners(sock, commerceId, cleanPhone);
-    
+
     const code = await requestPairingCodeWithRetry(sock, commerceId, cleanPhone);
-    
+
     if (code !== 'ALREADY_AUTHENTICATED') {
       pairingCodes.set(commerceId, code);
       console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
     }
-    
+
     const instance = activeSessions.get(commerceId);
     if (instance) instance.isPairing = false;
-    
+
     if (code === 'ALREADY_AUTHENTICATED') {
       console.log(`✅ [${commerceId}] Sesión ya autenticada, no se necesita código`);
     } else {
@@ -202,18 +232,16 @@ async function performPairingWithLock(
     console.error(`❌ [${commerceId}] Error en emparejamiento:`, error);
     await cleanupSession(commerceId, true);
     throw error;
-  } finally {
-    pendingPairings.delete(commerceId);
   }
 }
 
 // ============================================
-// 7. CREAR SOCKET
+// 7. CREAR SOCKET CON FIRESTORE
 // ============================================
 async function createSocketWithRetry(
   commerceId: string,
   cleanPhone: string,
-  sessionPath: string,
+  authState: any,
   retries: number = CONFIG.MAX_RETRIES
 ): Promise<any> {
   let lastError: Error | null = null;
@@ -222,10 +250,12 @@ async function createSocketWithRetry(
       console.log(`🔄 [${commerceId}] Intento ${attempt}/${retries} de conexión...`);
       const { version, isLatest } = await fetchLatestBaileysVersion();
       console.log(`📱 [${commerceId}] Versión: ${version.join('.')}, ¿Última?: ${isLatest}`);
-      const { state, saveCreds } = await useMultiFileAuthState(sessionPath);
+
+      const { creds, saveCreds } = authState;
+
       const sock = makeWASocket({
         version,
-        auth: state,
+        auth: creds || undefined,
         browser: ["Ubuntu", "Chrome", "20.0.04"],
         printQRInTerminal: false,
         syncFullHistory: false,
@@ -238,7 +268,9 @@ async function createSocketWithRetry(
         generateHighQualityLinkPreview: false,
         getMessage: async () => null
       });
+
       sock.ev.on('creds.update', saveCreds);
+
       console.log(`⏳ [${commerceId}] Esperando 8 segundos para que Baileys estabilice...`);
       await sleep(8000);
       console.log(`✅ [${commerceId}] Socket creado (con espera fija de 8s)`);
@@ -313,7 +345,7 @@ async function requestPairingCodeWithRetry(
           console.log(code);
         }
         console.log('='.repeat(100));
-        
+
         pairingCodes.set(commerceId, code);
         console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
         resolve(code);
@@ -354,7 +386,7 @@ async function requestPairingCodeWithRetry(
 function setupEventListeners(sock: any, commerceId: string, cleanPhone: string): void {
   sock.ev.on('connection.update', async (update: any) => {
     const { connection, lastDisconnect } = update;
-    
+
     if (update.pairingCode) {
       console.log(`🔑 [${commerceId}] Pairing code recibido en event listener: ${update.pairingCode}`);
       pairingCodes.set(commerceId, update.pairingCode);
@@ -426,7 +458,7 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
 }
 
 // ============================================
-// 10. LIMPIEZA DE SESIONES
+// 10. LIMPIEZA DE SESIONES (memoria y Firestore)
 // ============================================
 async function cleanupSession(commerceId: string, deleteState: boolean = true): Promise<void> {
   console.log(`🧹 [${commerceId}] Limpiando sesión...`);
@@ -445,15 +477,12 @@ async function cleanupSession(commerceId: string, deleteState: boolean = true): 
   }
   activeSessions.delete(commerceId);
   pairingCodes.delete(commerceId);
-  if (deleteState) {
-    const sessionPath = path.join(CONFIG.STATE_DIR, commerceId);
-    if (fs.existsSync(sessionPath)) {
-      try {
-        fs.rmSync(sessionPath, { recursive: true, force: true });
-        console.log(`✅ [${commerceId}] Directorio de estado eliminado: ${sessionPath}`);
-      } catch (error) {
-        console.warn(`⚠️ [${commerceId}] Error eliminando directorio:`, error);
-      }
+  if (deleteState && firestore) {
+    try {
+      await firestore.collection('whatsapp_auth').doc(commerceId).delete();
+      console.log(`🗑️ [${commerceId}] Credenciales eliminadas de Firestore`);
+    } catch (error) {
+      console.warn(`⚠️ [${commerceId}] Error eliminando credenciales de Firestore:`, error);
     }
   }
   await sleep(CONFIG.SESSION_CLEANUP_DELAY_MS);
