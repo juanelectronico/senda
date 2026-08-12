@@ -1148,28 +1148,48 @@ app.get('/api/whatsapp/status/:commerceId', async (req, res) => {
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
-app.listen(PORT, '0.0.0.0', () => {
-    console.log('========================================');
-    console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
-    console.log(`🌐 Health: http://localhost:${PORT}/health`);
-    console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
-    console.log('========================================');
+// ===== ESTRATEGIA DEFINITIVA: INICIAR EL BOT EN UN "WORKER" INDEPENDIENTE =====
 
-    // 🔥 DISPARADOR ÚNICO Y SEGURO PARA EL BOT
-    // Inicializamos Supabase de forma asíncrona, pero SIN BLOQUEAR el arranque del bot.
-    const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
-    const TEST_PHONE = '5215643652322';
+async function initServerAndBot() {
+    try {
+        console.log('⏳ Inicializando Supabase...');
+        await initSupabase();
+        console.log('✅ Supabase listo.');
 
-    console.log('🤖 Iniciando el bot de WhatsApp en caliente...');
-    
-    // Llamamos al bot de inmediato para que arranque, incluso si Supabase aún no responde.
-    // El bot usará el ID dummy para calentar el sistema y generar el pairing code en memoria.
-    startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
-        console.log('ℹ️ Aviso del bot en caliente (puede ser normal si ya estaba corriendo):', err.message);
-    });
+        // Iniciamos el servidor HTTP primero (esto no debe bloquearse)
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log('========================================');
+            console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
+            console.log(`🌐 Health: http://localhost:${PORT}/health`);
+            console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
+            console.log('========================================');
+        });
 
-    // Mientras tanto, conectamos Supabase por si se necesita más adelante.
-    initSupabase().catch(err => console.error('❌ Error en initSupabase (no crítico para el arranque del bot):', err));
-});
+        // ⚡ Damos un pequeño margen y luego forzamos el arranque del bot
+        setTimeout(() => {
+            console.log('🤖 Iniciando el bot de WhatsApp en un hilo independiente...');
+            
+            const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
+            const TEST_PHONE = '5215580837283'; // El nuevo número
+
+            startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
+                console.log('ℹ️ Estado del bot (no crítico):', err.message || 'El bot ya estaba en proceso.');
+            });
+
+            // 🔥 Mantenemos el bot vivo haciendo un ping interno cada 30 segundos
+            setInterval(() => {
+                // Esta llamada interna no hace nada, solo evita que el proceso se duerma
+                console.log('⏱️ Keep-alive del bot...');
+            }, 30000);
+
+        }, 3000); // Esperamos 3 segundos a que el servidor HTTP termine de arrancar
+
+    } catch (err) {
+        console.error('❌ Error crítico al iniciar:', err);
+    }
+}
+
+// Ejecutamos el iniciador principal
+initServerAndBot();
 
 export default app;
