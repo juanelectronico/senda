@@ -394,38 +394,78 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
 });
 
 // ============================================
-// ===== PÁGINA DE PAGO EXITOSO (MEJORADA CON INICIO AUTOMÁTICO Y FORCE NEW) =====
+// ===== PÁGINA DE PAGO EXITOSO (CON LOGS DE DEPURACIÓN) =====
 // ============================================
 app.get('/payment/success', async (req, res) => {
+    // 🔍 LOG DE DEPURACIÓN - Ver qué parámetros llegan
+    console.log(`🔍 [DEPURACIÓN] /payment/success llamado`);
+    console.log(`🔍 [DEPURACIÓN] Query params:`, JSON.stringify(req.query));
+    
     const commerceId = req.query.id as string;
+    const phoneParam = req.query.phone as string;
+    
+    console.log(`🔍 [DEPURACIÓN] commerceId: ${commerceId}`);
+    console.log(`🔍 [DEPURACIÓN] phoneParam: ${phoneParam}`);
     
     // 👇 FORZAR LA GENERACIÓN DEL QR AUTOMÁTICAMENTE
     if (commerceId) {
         console.log(`🚀 [${commerceId}] Iniciando WhatsApp automáticamente desde /payment/success`);
         
         // Obtener el teléfono del comercio desde Supabase
-        let phoneNumber = '5215643652322'; // Número por defecto
+        let phoneNumber = phoneParam || '5215643652322'; // Usar el parámetro o el default
+        console.log(`🔍 [DEPURACIÓN] phoneNumber inicial: ${phoneNumber}`);
+        
         try {
+            console.log(`🔍 [DEPURACIÓN] Intentando obtener teléfono desde Supabase...`);
             const module = await import('./config/supabase.js');
             const supabase = module.supabase;
             if (supabase) {
-                const { data: commerce } = await supabase
+                console.log(`🔍 [DEPURACIÓN] Supabase cargado, consultando comercio...`);
+                const { data: commerce, error } = await supabase
                     .from('commerce')
                     .select('phone')
                     .eq('id', commerceId)
                     .single();
+                
+                if (error) {
+                    console.error(`🔍 [DEPURACIÓN] Error al consultar Supabase:`, error);
+                }
+                
                 if (commerce?.phone) {
                     phoneNumber = commerce.phone;
+                    console.log(`🔍 [DEPURACIÓN] Teléfono obtenido de Supabase: ${phoneNumber}`);
+                } else {
+                    console.log(`🔍 [DEPURACIÓN] No se encontró teléfono en Supabase, usando: ${phoneNumber}`);
                 }
+            } else {
+                console.log(`🔍 [DEPURACIÓN] Supabase no disponible, usando: ${phoneNumber}`);
             }
-        } catch (e) {
-            console.warn('⚠️ No se pudo obtener el teléfono, usando número por defecto');
+        } catch (e: any) {
+            console.warn(`⚠️ No se pudo obtener el teléfono de Supabase:`, e.message);
+            console.log(`🔍 [DEPURACIÓN] Usando teléfono por defecto: ${phoneNumber}`);
         }
         
-        // 🔧 Pasar forceNew = true para limpiar sesión anterior y generar nuevo código
-        startWhatsAppBotForCommerce(commerceId, phoneNumber, true).catch(err => {
-            console.error(`❌ Error al iniciar WhatsApp:`, err);
+        console.log(`🔍 [DEPURACIÓN] Llamando a startWhatsAppBotForCommerce con:`, {
+            commerceId,
+            phoneNumber,
+            forceNew: true
         });
+        
+        // 🔧 Pasar forceNew = true para limpiar sesión anterior y generar nuevo código
+        startWhatsAppBotForCommerce(commerceId, phoneNumber, true)
+            .then((result) => {
+                console.log(`✅ [${commerceId}] WhatsApp iniciado correctamente:`, result);
+            })
+            .catch((err) => {
+                console.error(`❌ [${commerceId}] Error al iniciar WhatsApp:`, err);
+            });
+        
+        console.log(`🔍 [DEPURACIÓN] startWhatsAppBotForCommerce llamado (ejecutando en background)`);
+        
+    } else {
+        console.log(`⚠️ [DEPURACIÓN] No se recibió commerceId en la URL`);
+        console.log(`🔍 [DEPURACIÓN] URL completa: ${req.url}`);
+        console.log(`🔍 [DEPURACIÓN] Headers:`, JSON.stringify(req.headers));
     }
     
     // Mostrar la vista HTML (se mantiene 100% igual a tu código)
