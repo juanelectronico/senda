@@ -1143,46 +1143,31 @@ app.get('/api/whatsapp/status/:commerceId', async (req, res) => {
 });
 
 // ============================================
-// INICIO AUTOMÁTICO DEL SERVIDOR
+// INICIO DEL SERVIDOR (SIN BOT AUTOMÁTICO)
 // ============================================
 
 const PORT = parseInt(process.env.PORT || '8080', 10);
 
-// ===== ESTRATEGIA DEFINITIVA: INICIAR EL BOT EN UN "WORKER" INDEPENDIENTE =====
-
-async function initServerAndBot() {
+async function initServer() {
     try {
         console.log('⏳ Inicializando Supabase...');
         await initSupabase();
         console.log('✅ Supabase listo.');
 
-        // Iniciamos el servidor HTTP primero (esto no debe bloquearse)
+        // Iniciamos el servidor HTTP
         app.listen(PORT, '0.0.0.0', () => {
             console.log('========================================');
             console.log(`🚀 Senda API corriendo en puerto ${PORT}`);
             console.log(`🌐 Health: http://localhost:${PORT}/health`);
             console.log(`📋 Registro: http://localhost:${PORT}/register.html`);
             console.log('========================================');
+            console.log('⏳ Esperando solicitud de un comercio real para iniciar el bot...');
         });
 
-        // ⚡ Damos un pequeño margen y luego forzamos el arranque del bot
-        setTimeout(() => {
-            console.log('🤖 Iniciando el bot de WhatsApp en un hilo independiente...');
-            
-            const TEST_COMMERCE_ID = 'DUMMY_BOOT_ID';
-            const TEST_PHONE = '5215580837283'; // El nuevo número
-
-            startWhatsAppBotForCommerce(TEST_COMMERCE_ID, TEST_PHONE, true).catch(err => {
-                console.log('ℹ️ Estado del bot (no crítico):', err.message || 'El bot ya estaba en proceso.');
-            });
-
-            // 🔥 Mantenemos el bot vivo haciendo un ping interno cada 30 segundos
-            setInterval(() => {
-                // Esta llamada interna no hace nada, solo evita que el proceso se duerma
-                console.log('⏱️ Keep-alive del bot...');
-            }, 30000);
-
-        }, 3000); // Esperamos 3 segundos a que el servidor HTTP termine de arrancar
+        // 🔥 Mantenemos el proceso vivo con un ping interno cada 30 segundos
+        setInterval(() => {
+            console.log('⏱️ Keep-alive del servidor...');
+        }, 30000);
 
     } catch (err) {
         console.error('❌ Error crítico al iniciar:', err);
@@ -1190,6 +1175,6 @@ async function initServerAndBot() {
 }
 
 // Ejecutamos el iniciador principal
-initServerAndBot();
+initServer();
 
 export default app;
