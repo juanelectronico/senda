@@ -10,15 +10,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { MercadoPagoConfig, Preference, Payment } from 'mercadopago';
-import paymentRoutes from '../routes/payment.routes.js';
-import { FiscalInterceptor } from '../features/fiscal/interceptor.js';
+import paymentRoutes from './routes/payment.routes.js';
+import { FiscalInterceptor } from './features/fiscal/interceptor.js';
+import { supabase } from './config/supabase.js';
+import rateLimit from 'express-rate-limit';
+import morgan from 'morgan';
 
-// ===== IMPORTS DE WHATSAPP (UN SOLO BLOQUE) =====
+// ===== IMPORTS DE WHATSAPP =====
 import { 
     startWhatsAppBotForCommerce, 
     pairingCodes, 
     getSessionStatus 
-} from '../services/whatsapp.service.js';
+} from './services/whatsapp.service.js';
 
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
@@ -29,12 +32,20 @@ console.log('🚀 Iniciando Senda API...');
 const app = express();
 
 // ===== MIDDLEWARE =====
+app.use(morgan('combined')); // Logging de peticiones
 app.use(cors({
     origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',') : '*',
     credentials: true
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// ===== RATE LIMITING (Protección) =====
+const registerLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutos
+    max: 5, // 5 intentos por IP
+    message: { error: 'Demasiados intentos, espera 15 minutos' }
+});
 
 // ===== INTERCEPTOR FISCAL =====
 const fiscalInterceptor = new FiscalInterceptor();
@@ -74,34 +85,25 @@ try {
     console.error('❌ Error MercadoPago:', error);
 }
 
-// ===== INICIALIZAR SUPABASE =====
-let supabase: any = null;
-
-async function initSupabase() {
-    try {
-        const module = await import('../config/supabase.js');
-        supabase = module.supabase;
-        console.log('✅ Supabase inicializado');
-        return true;
-    } catch (error) {
-        console.error('❌ Error Supabase:', error);
-        return false;
-    }
-}
-
 // ===== VALIDACIÓN DE CERTIFICADOS SAT =====
 function validarSAT(cer: string, key: string, pass: string): { valid: boolean; errors: string[] } {
     const errors: string[] = [];
-
-    if (!cer || cer.length < 10) errors.push('El .cer es obligatorio y debe tener al menos 10 caracteres');
-    if (!key || key.length < 10) errors.push('El .key es obligatorio y debe tener al menos 10 caracteres');
-    if (!pass || pass.length < 2) errors.push('La contraseña es obligatoria');
+    
+    // Validar formato Base64
+    const base64Regex = /^[A-Za-z0-9+/=]+$/;
+    if (!base64Regex.test(cer)) errors.push('El .cer no tiene formato Base64 válido');
+    if (!base64Regex.test(key)) errors.push('El .key no tiene formato Base64 válido');
+    
+    // Validar longitud mínima
+    if (cer.length < 100) errors.push('El .cer parece demasiado corto');
+    if (key.length < 100) errors.push('El .key parece demasiado corto');
+    if (pass.length < 4) errors.push('La contraseña debe tener al menos 4 caracteres');
 
     return { valid: errors.length === 0, errors };
 }
 
-// ===== RUTA DE REGISTRO =====
-app.post('/api/commerce/register', async (req: Request, res: Response): Promise<any> => {
+// ===== RUTA DE REGISTRO (con rate limiting) =====
+app.post('/api/commerce/register', registerLimiter, async (req: Request, res: Response): Promise<any> => {
     try {
         console.log('📝 Registro de comercio');
         
@@ -110,33 +112,65 @@ app.post('/api/commerce/register', async (req: Request, res: Response): Promise<
             csd_cer_base64, csd_key_base64, csd_password 
         } = req.body;
 
+        // ===== VALIDACIONES =====
         if (!rfc || !business_name || !tax_regime || !zip_code || !phone || !email) {
             return res.status(400).json({ success: false, error: 'Faltan campos obligatorios' });
+        }
+
+        // Validar RFC (formato mexicano)
+        const rfcRegex = /^[A-ZÑ&]{3,4}\d{6}[A-Z0-9]{3}$/;
+        if (!rfcRegex.test(rfc)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'RFC inválido. Formato esperado: ABC123456DEF' 
+            });
+        }
+
+        // Validar email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Email inválido' 
+            });
         }
 
         console.log('🔍 Validando certificados SAT...');
         const satValidation = validarSAT(csd_cer_base64, csd_key_base64, csd_password);
         
         if (!satValidation.valid) {
-            return res.status(400).json({ success: false, error: 'Certificados SAT inválidos', details: satValidation.errors });
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Certificados SAT inválidos', 
+                details: satValidation.errors 
+            });
         }
 
         if (!supabase) {
-            await initSupabase();
-            if (!supabase) return res.status(503).json({ success: false, error: 'Base de datos no disponible' });
+            return res.status(503).json({ success: false, error: 'Base de datos no disponible' });
         }
 
         if (!mercadopagoClient) {
             return res.status(503).json({ success: false, error: 'Servicio de pagos no disponible' });
         }
 
+        // ===== GUARDAR EN SUPABASE =====
         console.log('💾 Guardando en Supabase...');
         const { data, error } = await supabase
             .from('commerce')
             .insert({
-                rfc, business_name, tax_regime, zip_code, phone, email,
-                csd_cer_base64, csd_key_base64, csd_password,
-                is_active: false, is_premium: false, invoice_count: 0,
+                rfc, 
+                business_name, 
+                tax_regime, 
+                zip_code, 
+                phone, 
+                email,
+                csd_cer_base64, 
+                csd_key_base64, 
+                csd_password,
+                is_active: false, 
+                is_premium: false, 
+                invoice_count: 0,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString()
             })
@@ -145,11 +179,16 @@ app.post('/api/commerce/register', async (req: Request, res: Response): Promise<
 
         if (error) {
             console.error('❌ Error Supabase:', error);
-            return res.status(500).json({ success: false, error: 'Error al guardar en base de datos', details: error.message });
+            return res.status(500).json({ 
+                success: false, 
+                error: 'Error al guardar en base de datos', 
+                details: error.message 
+            });
         }
 
         console.log('✅ Comercio registrado ID:', data.id);
 
+        // ===== GENERAR PREFERENCIA DE PAGO =====
         console.log('🔄 Generando preferencia de pago...');
         let initPoint = null;
 
@@ -172,7 +211,7 @@ app.post('/api/commerce/register', async (req: Request, res: Response): Promise<
                     payer: { email: email, name: business_name },
                     external_reference: data.id.toString(),
                     back_urls: {
-                        success: `${baseUrl}/payment/success?id=${data.id}`,
+                        success: `${baseUrl}/payment/success?id=${data.id}&phone=${phone}`,
                         failure: `${baseUrl}/payment/failure`,
                         pending: `${baseUrl}/payment/pending`
                     },
@@ -185,14 +224,23 @@ app.post('/api/commerce/register', async (req: Request, res: Response): Promise<
 
         } catch (mpError: any) {
             console.error('❌ Error MercadoPago:', mpError);
-            return res.status(500).json({ success: false, error: 'No se pudo generar el link de pago', details: mpError.message });
+            return res.status(500).json({ 
+                success: false, 
+                error: 'No se pudo generar el link de pago', 
+                details: mpError.message 
+            });
         }
 
         return res.json({
             success: true,
             message: '✅ Registro exitoso. Procede al pago.',
             init_point: initPoint,
-            commerce: { id: data.id, business_name: data.business_name, email: data.email, phone: data.phone }
+            commerce: { 
+                id: data.id, 
+                business_name: data.business_name, 
+                email: data.email, 
+                phone: data.phone 
+            }
         });
 
     } catch (error: any) {
@@ -209,7 +257,9 @@ app.post('/api/payment/webhook', async (req: Request, res: Response): Promise<an
 
         if (type === 'payment' || action === 'payment.updated') {
             const paymentId = data?.id || req.body.id;
-            if (!paymentId || !mercadopagoClient) return res.status(200).json({ received: true });
+            if (!paymentId || !mercadopagoClient) {
+                return res.status(200).json({ received: true });
+            }
 
             const payment = new Payment(mercadopagoClient);
             const paymentInfo = await payment.get({ id: paymentId });
@@ -219,9 +269,14 @@ app.post('/api/payment/webhook', async (req: Request, res: Response): Promise<an
             if (paymentInfo.status === 'approved' && supabase) {
                 const commerceId = paymentInfo.external_reference;
                 if (commerceId) {
+                    // Activar comercio
                     await supabase
                         .from('commerce')
-                        .update({ is_active: true, is_premium: true, updated_at: new Date().toISOString() })
+                        .update({ 
+                            is_active: true, 
+                            is_premium: true, 
+                            updated_at: new Date().toISOString() 
+                        })
                         .eq('id', commerceId);
                     console.log(`✅ Pago aprobado para comercio ${commerceId}`);
                 }
@@ -230,11 +285,15 @@ app.post('/api/payment/webhook', async (req: Request, res: Response): Promise<an
         res.status(200).json({ received: true });
     } catch (error) {
         console.error('❌ Webhook error:', error);
-        res.status(200).json({ received: true });
+        // Responder con error para que MercadoPago reintente
+        res.status(500).json({ 
+            received: false, 
+            error: 'Error procesando webhook' 
+        });
     }
 });
 
-// ===== RUTA: OBTENER QR O PAIRING CODE PARA LA VISTA =====
+// ===== RUTA: OBTENER QR (SOLO DESPUÉS DE PAGO) =====
 app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
     try {
         const { id } = req.query;
@@ -246,12 +305,35 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
             });
         }
 
+        // VERIFICAR QUE EL COMERCIO HAYA PAGADO
+        if (supabase) {
+            const { data: commerce, error } = await supabase
+                .from('commerce')
+                .select('is_active, phone')
+                .eq('id', id)
+                .single();
+
+            if (error || !commerce) {
+                return res.status(404).json({
+                    success: false,
+                    error: 'Comercio no encontrado'
+                });
+            }
+
+            if (!commerce.is_active) {
+                return res.status(403).json({
+                    success: false,
+                    error: 'Pago no confirmado. Por favor, completa el pago primero.'
+                });
+            }
+        }
+
         const code = pairingCodes.get(id) || null;
 
         if (code) {
             return res.json({
                 success: true,
-                qr: code, // Cadena data:image/... lista para usar en src=""
+                qr: code,
                 status: 'ready',
                 isPairing: false
             });
@@ -293,30 +375,48 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
 // ===== PÁGINA DE PAGO EXITOSO (GENERA QR AUTOMÁTICAMENTE) =====
 app.get('/payment/success', async (req, res) => {
     const commerceId = req.query.id as string;
+    const phoneParam = req.query.phone as string;
     
     if (!commerceId) {
         return res.status(400).send('ID de comercio no proporcionado');
     }
 
+    let phoneNumber = phoneParam;
+
     try {
-        if (!supabase) await initSupabase();
-
-        const { data: commerce, error } = await supabase
-            .from('commerce')
-            .select('*')
-            .eq('id', commerceId)
-            .single();
-
-        if (error || !commerce) {
-            return res.status(404).send('Comercio no encontrado');
+        // Obtener teléfono de la base de datos si no viene en la URL
+        if (!phoneNumber && supabase) {
+            const { data: commerce } = await supabase
+                .from('commerce')
+                .select('phone')
+                .eq('id', commerceId)
+                .single();
+            
+            if (commerce?.phone) {
+                phoneNumber = commerce.phone;
+            }
         }
-        if (!commerce.is_active) {
-            return res.status(400).send('❌ Pago no confirmado. Por favor, completa el pago primero.');
+
+        if (!phoneNumber) {
+            return res.status(400).send('Número de teléfono no disponible');
+        }
+
+        // VERIFICAR QUE EL PAGO FUE APROBADO
+        if (supabase) {
+            const { data: commerce } = await supabase
+                .from('commerce')
+                .select('is_active')
+                .eq('id', commerceId)
+                .single();
+
+            if (!commerce?.is_active) {
+                return res.status(400).send('❌ Pago no confirmado. Por favor, completa el pago primero.');
+            }
         }
 
         // INICIAR WHATSAPP SOLO DESPUÉS DEL PAGO
         console.log(`📱 Iniciando WhatsApp para comercio ${commerceId} después del pago...`);
-        startWhatsAppBotForCommerce(commerceId, commerce.phone, true)
+        startWhatsAppBotForCommerce(commerceId, phoneNumber, true)
             .catch((err) => {
                 console.error(`❌ [${commerceId}] Error al iniciar WhatsApp:`, err);
             });
