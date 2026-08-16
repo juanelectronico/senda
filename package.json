@@ -3,14 +3,15 @@
   "version": "1.0.0",
   "description": "Senda - Plataforma de facturación SAT",
   "type": "module",
-  "scripts": {
+ "scripts": {
     "dev": "node --import tsx --no-warnings src/index.ts",
     "dev:simple": "tsx src/index.ts",
     "build": "tsc",
-    "start": "node whatsapp-bot-final.cjs",
+    "start": "node --import tsx src/index.ts",
     "clean": "rm -rf dist node_modules",
     "test": "node --import tsx src/index.ts",
     "postinstall": "echo '✅ Dependencias instaladas correctamente'"
+  },
   },
   "dependencies": {
     "@google-cloud/firestore": "^9.0.0",
