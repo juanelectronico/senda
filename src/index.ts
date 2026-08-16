@@ -30,6 +30,7 @@ const __dirname = dirname(__filename);
 console.log('🚀 Iniciando Senda API...');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // ===== MIDDLEWARE =====
 app.use(morgan('combined'));

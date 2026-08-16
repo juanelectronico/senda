@@ -1,6 +1,7 @@
 // ===== WEBSOCKET (Para Baileys) =====
 import { WebSocket } from 'ws';
 global.WebSocket = WebSocket;
+
 // ===== IMPORTS =====
 import 'dotenv/config';
 import express from 'express';
@@ -14,13 +15,14 @@ import { FiscalInterceptor } from './features/fiscal/interceptor.js';
 import { supabase } from './config/supabase.js';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
-// ===== IMPORTS DE WHATSAPP =====
-import { startWhatsAppBotForCommerce, pairingCodes, getSessionStatus } from './services/whatsapp.service.js';
+
 // ===== DIRECTORIO ACTUAL =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
 console.log('🚀 Iniciando Senda API...');
 const app = express();
+
 // ===== MIDDLEWARE =====
 app.use(morgan('combined'));
 app.use(cors({
@@ -29,25 +31,31 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 // ===== RATE LIMITING =====
 const registerLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 5,
     message: { error: 'Demasiados intentos, espera 15 minutos' }
 });
+
 // ===== INTERCEPTOR FISCAL =====
 const fiscalInterceptor = new FiscalInterceptor();
+
 // ===== RUTAS DE PAGO =====
 app.use('/api/payment', paymentRoutes);
-// ===== STATIC FILES (Orden correcto después de declarar 'app') =====
+
+// ===== STATIC FILES =====
 const publicDir = path.resolve(process.cwd(), 'public');
 app.use(express.static(publicDir, {
     index: false
 }));
+
 // Redirección explícita al nombre correcto de tu archivo HTML
 app.get('/', (req, res) => {
     res.sendFile(path.join(publicDir, 'registro-comercio.html'));
 });
+
 // ===== HEALTH CHECK =====
 app.get('/health', (req, res) => {
     res.json({
@@ -56,6 +64,7 @@ app.get('/health', (req, res) => {
         timestamp: new Date().toISOString()
     });
 });
+
 // ===== INICIALIZAR MERCADO PAGO =====
 let mercadopagoClient = null;
 try {
@@ -73,6 +82,7 @@ try {
 catch (error) {
     console.error('❌ Error MercadoPago:', error);
 }
+
 // ===== VALIDACIÓN DE CERTIFICADOS SAT =====
 function validarSAT(cer, key, pass) {
     const errors = [];
@@ -89,6 +99,7 @@ function validarSAT(cer, key, pass) {
         errors.push('La contraseña debe tener al menos 4 caracteres');
     return { valid: errors.length === 0, errors };
 }
+
 // ===== RUTA DE REGISTRO =====
 app.post('/api/commerce/register', registerLimiter, async (req, res) => {
     try {
@@ -154,7 +165,7 @@ app.post('/api/commerce/register', registerLimiter, async (req, res) => {
             success: true,
             message: '✅ Registro exitoso. Procede al pago.',
             init_point: result.init_point,
-            commerceId: data.id, // <-- Importante para que el frontend redirija correctamente
+            commerceId: data.id,
             commerce: { id: data.id, business_name: data.business_name, email: data.email, phone: data.phone }
         });
     }
@@ -163,6 +174,7 @@ app.post('/api/commerce/register', registerLimiter, async (req, res) => {
         return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
+
 // ===== WEBHOOK DE MERCADO PAGO =====
 app.post('/api/payment/webhook', async (req, res) => {
     try {
@@ -189,6 +201,7 @@ app.post('/api/payment/webhook', async (req, res) => {
         res.status(500).json({ received: false, error: 'Error procesando webhook' });
     }
 });
+
 // ===== RUTA: OBTENER QR =====
 app.get('/api/whatsapp/get-qr', async (req, res) => {
     try {
@@ -206,6 +219,10 @@ app.get('/api/whatsapp/get-qr', async (req, res) => {
                 return res.status(403).json({ success: false, error: 'Comercio no activo o no encontrado' });
             }
         }
+        
+        // Importación dinámica para prevenir bloqueos de inicio
+        const { pairingCodes, getSessionStatus } = await import('./services/whatsapp.service.js');
+        
         const rawCode = pairingCodes.get(id) || null;
         if (rawCode) {
             return res.json({ success: true, qr: rawCode, status: 'ready', isPairing: false });
@@ -220,6 +237,7 @@ app.get('/api/whatsapp/get-qr', async (req, res) => {
         return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
+
 // ===== PÁGINA DE PAGO EXITOSO =====
 app.get('/payment/success', async (req, res) => {
     const commerceId = req.query.id;
@@ -233,6 +251,7 @@ app.get('/payment/success', async (req, res) => {
                 .eq('id', commerceId)
                 .single();
             if (commerce?.phone) {
+                const { startWhatsAppBotForCommerce } = await import('./services/whatsapp.service.js');
                 startWhatsAppBotForCommerce(commerceId, commerce.phone, true).catch(() => { });
             }
         }
@@ -309,6 +328,7 @@ app.get('/payment/success', async (req, res) => {
         </html>
     `);
 });
+
 // ===== PUERTO Y LANZAMIENTO =====
 const PORT = process.env.PORT || 8080;
 app.listen(Number(PORT), '0.0.0.0', () => {
