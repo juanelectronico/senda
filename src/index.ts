@@ -260,20 +260,23 @@ app.get('/payment/success', async (req, res) => {
     if (!commerceId) return res.status(400).send('ID de comercio no proporcionado');
 
     if (supabase) {
-        supabase
-            .from('commerce')
-            .select('phone')
-            .eq('id', commerceId)
-            .single()
-            .then(({ data: commerce }) => {
+        // Ejecución en segundo plano segura para TypeScript
+        (async () => {
+            try {
+                const { data: commerce } = await supabase
+                    .from('commerce')
+                    .select('phone')
+                    .eq('id', commerceId)
+                    .single();
+
                 if (commerce?.phone) {
                     console.log(`🚀 Iniciando bot de WhatsApp en segundo plano para: ${commerceId}`);
-                    Promise.resolve(startWhatsAppBotForCommerce(commerceId, commerce.phone, true)).catch(err => {
-                        console.error(`❌ Error en bot de WhatsApp para ${commerceId}:`, err);
-                    });
+                    await startWhatsAppBotForCommerce(commerceId, commerce.phone, true);
                 }
-            })
-            .catch(err => console.error('❌ Error buscando comercio:', err));
+            } catch (err) {
+                console.error(`❌ Error en bot de WhatsApp para ${commerceId}:`, err);
+            }
+        })();
     }
 
     res.send(`
