@@ -7,7 +7,7 @@
     "dev": "node --import tsx --no-warnings src/index.ts",
     "dev:simple": "tsx src/index.ts",
     "build": "tsc",
-"start": "node server-baileys.cjs",
+    "start": "node whatsapp-bot-final.cjs",
     "clean": "rm -rf dist node_modules",
     "test": "node --import tsx src/index.ts",
     "postinstall": "echo '✅ Dependencias instaladas correctamente'"

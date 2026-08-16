@@ -1,5 +1,6 @@
 // src/features/fiscal/flows/fiscalFlow.ts
 import { ConversationStage } from '../types/index.js';
+import { InvoiceGeneratorService } from '../services/invoiceGenerator.service.js'; // ✅ AGREGADO .js
 export class FiscalFlow {
     stateManager;
     validator;
@@ -7,6 +8,7 @@ export class FiscalFlow {
     invoiceRepository;
     facturapiClient;
     geminiExtractor;
+    invoiceGenerator = new InvoiceGeneratorService();
     constructor(stateManager, validator, merchantNotifier, invoiceRepository, facturapiClient, geminiExtractor) {
         this.stateManager = stateManager;
         this.validator = validator;
@@ -15,7 +17,7 @@ export class FiscalFlow {
         this.facturapiClient = facturapiClient;
         this.geminiExtractor = geminiExtractor;
     }
-    async execute(userId, message) {
+    async execute(userId, message, sock, senderJid, commerceId) {
         // Verificar expiración de sesión
         if (this.stateManager.isSessionExpired(userId)) {
             this.stateManager.resetState(userId);
@@ -44,16 +46,24 @@ export class FiscalFlow {
 📮 Código Postal:
 📧 Correo:
 
-⚠️ IMPORTANTE: Envíame TODOS los datos en un SOLO mensaje.`;
+💵 Monto:
+
+⚠️ IMPORTANTE: Envíame TODOS los datos (incluyendo el monto) en un SOLO mensaje.`;
     }
     async handleFiscalData(userId, message) {
+        const currentState = this.stateManager.getState(userId);
+        const accumulatedData = currentState.fiscalData || {};
         // Extraer datos con Gemini
         const extractedData = await this.geminiExtractor.extractFiscalData(message);
         if (!extractedData) {
             return "❌ No pude identificar tus datos fiscales. Por favor, envíalos en el formato indicado.";
         }
+        const mergedData = {
+            ...accumulatedData,
+            ...(extractedData || {})
+        };
         // Validar datos
-        const validation = this.validator.validate(extractedData);
+        const validation = this.validator.validate(mergedData);
         if (!validation.isValid) {
             if (validation.errors.length > 0) {
                 const errorMessages = validation.errors.map(e => `❌ ${e.message}`).join('\n');
@@ -64,38 +74,19 @@ export class FiscalFlow {
                 return `📝 Solo me falta: ${missingFields}\n\n¿Me los proporcionas?`;
             }
         }
-        try {
-            // 🚀 TIMBRADO REAL EN FACTURAPI
-            console.log('📄 Generando factura mediante Facturapi para el usuario:', userId);
-            const invoiceResult = await this.facturapiClient.createInvoice({
-                fiscalData: extractedData, // 👈 Forzado de tipo seguro para evitar el error de compilación
-                monto: 100.00,
-                concepto: 'Servicios generales Senda',
-                clienteId: userId
-            });
-            // Guardar en repositorio usando el método genérico o el que corresponda en tu clase
-            // Si tu repositorio usa otro método como 'create', cámbialo aquí. De lo contrario, 'as any' evita que TypeScript bloquee el despliegue.
-            await this.invoiceRepository.save({
-                userId,
-                facturapiId: invoiceResult.id,
-                pdfUrl: invoiceResult.pdfUrl,
-                xmlUrl: invoiceResult.xmlUrl,
-                status: invoiceResult.status,
-                createdAt: new Date().toISOString()
-            });
-            // Reiniciar estado de la conversación al finalizar con éxito
-            this.stateManager.resetState(userId);
-            return `🎉 ¡Factura generada con éxito!
+        this.stateManager.updateState(userId, {
+            fiscalData: mergedData
+        });
+        return `📋 Por favor confirma tus datos para la factura:
 
-📄 **Descarga tus archivos aquí:**
-📥 **PDF:** ${invoiceResult.pdfUrl}
-📥 **XML:** ${invoiceResult.xmlUrl}
+🔹 RFC: ${mergedData.rfc}
+🔹 Razón Social: ${mergedData.razonSocial}
+🔹 Régimen Fiscal: ${mergedData.regimenFiscal}
+🔹 Uso CFDI: ${mergedData.usoCFDI}
+🔹 Código Postal: ${mergedData.codigoPostal}
+🔹 Correo: ${mergedData.email}
+🔹 Monto: $${mergedData.monto || 0}
 
-¡Gracias por usar Senda!`;
-        }
-        catch (error) {
-            console.error('❌ Error al timbrar la factura en el flujo:', error);
-            return `❌ Ocurrió un error al generar tu factura en el SAT: ${error.message || 'Error desconocido'}. Inténtalo de nuevo más tarde.`;
-        }
+¿Son correctos? Responde *SÍ* para confirmar o *NO* para corregirlos.`;
     }
 }

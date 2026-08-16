@@ -1,5 +1,4 @@
-<<<<<<< HEAD
-// whatsapp-bot-final.cjs - VERSIÓN CORREGIDA
+// whatsapp-bot-final.cjs - VERSIÓN CORREGIDA Y UNIFICADA
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const QRCodeTerminal = require('qrcode-terminal');
@@ -10,42 +9,13 @@ const path = require('path');
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
+const axios = require('axios');
 
 // ===== PARCHE DE EMERGENCIA PARA BAILEYS =====
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 const EventEmitter = require('events');
-EventEmitter.defaultMaxListeners = 20;
-
-// ===== CONFIGURACIÓN =====
-=======
-// whatsapp-bot-final.cjs - VERSIÓN CON EMPAREJAMIENTO DE 8 DÍGITOS
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
-const { Boom } = require('@hapi/boom');
-const express = require('express');
-const http = require('http');
-const { createClient } = require('@supabase/supabase-js');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
-const axios = require('axios');
-
-process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-const EventEmitter = require('events');
 EventEmitter.defaultMaxListeners = 30;
 
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
-const PORT = 3001;
-const app = express();
-const server = http.createServer(app);
-
-<<<<<<< HEAD
-// ===== SUPABASE & GEMINI =====
-require('dotenv').config();
-
-console.log("=== DIAGNÓSTICO ===");
-console.log("SUPABASE_URL:", process.env.SUPABASE_URL || "❌ No encontrada");
-console.log("SUPABASE_KEY existe:", process.env.SUPABASE_KEY ? "✅ Sí" : "❌ No");
-console.log("GEMINI_API_KEY existe:", process.env.GEMINI_API_KEY ? "✅ Sí" : "❌ No");
-console.log("====================");
-=======
 require('dotenv').config();
 
 console.log("=== DIAGNÓSTICO SENDA (BOT DE COMERCIO) ===");
@@ -54,7 +24,6 @@ console.log("SUPABASE_KEY existe:", process.env.SUPABASE_KEY ? "✅ Sí" : "❌ 
 console.log("GEMINI_API_KEY existe:", process.env.GEMINI_API_KEY ? "✅ Sí" : "❌ No");
 console.log("FACTURAPI_SECRET_KEY existe:", process.env.FACTURAPI_SECRET_KEY ? "✅ Sí" : "❌ No");
 console.log("==========================================");
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
 
 if (!process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
     console.error('❌ ERROR CRÍTICO: Faltan SUPABASE_URL o SUPABASE_KEY en el archivo .env');
@@ -69,20 +38,24 @@ const supabase = createClient(
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-<<<<<<< HEAD
-// ===== VARIABLES GLOBALES =====
 let sock = null;
 let qrCode = null;
 let isConnected = false;
-let reconnectTimer = null;  // 🟢 Control de reconexión
-let isReconnecting = false; // 🟢 Evita múltiples reconexiones
+let reconnectTimer = null;
+let isReconnecting = false;
+let messageQueue = [];
 
-// ===== RATE LIMITING =====
 const userMessageCooldown = new Map();
-const COOLDOWN_MS = 5000; // 5 segundos por usuario
+const COOLDOWN_MS = 3000;
 const MAX_MESSAGES_PER_MINUTE = 10;
 
+const userBillingState = new Map();
+
 // ===== SERVIDOR EXPRESS =====
+const PORT = 3001;
+const app = express();
+const server = http.createServer(app);
+
 app.use(express.json());
 app.use(express.static('public'));
 
@@ -99,7 +72,9 @@ app.get('/qr', async (req, res) => {
         }
     } else {
         res.json({ qr: null, message: 'No QR available' });
-=======
+    }
+});
+
 // ============================================
 // FACTURAPI V2 - CFDI 4.0
 // ============================================
@@ -204,19 +179,6 @@ function extractFiscalDataManual(text) {
     return data;
 }
 
-let sock = null;
-let isConnected = false;
-let reconnectTimer = null;
-let isReconnecting = false;
-let messageQueue = [];
-
-const userBillingState = new Map();
-const userMessageCooldown = new Map();
-const COOLDOWN_MS = 3000;
-
-app.use(express.json());
-app.use(express.static('public'));
-
 // NUEVO ENDPOINT PARA SOLICITAR EL CÓDIGO DE EMPAREJAMIENTO DE 8 DÍGITOS
 app.post('/api/whatsapp/request-pair', async (req, res) => {
     try {
@@ -234,12 +196,8 @@ app.post('/api/whatsapp/request-pair', async (req, res) => {
             return res.json({ success: true, message: 'El WhatsApp ya se encuentra conectado.' });
         }
 
-        // Esperar unos segundos para asegurar que el socket esté listo para emparejar
         console.log(`🔗 Solicitando código de emparejamiento de 8 dígitos para: ${cleanedPhone}`);
-        
-        // Pequeño delay de seguridad
         await new Promise(resolve => setTimeout(resolve, 3000));
-        
         const code = await sock.requestPairingCode(cleanedPhone);
         console.log(`🔑 Código de emparejamiento generado: ${code}`);
 
@@ -247,7 +205,6 @@ app.post('/api/whatsapp/request-pair', async (req, res) => {
     } catch (error) {
         console.error('❌ Error al solicitar código de emparejamiento:', error.message);
         return res.status(500).json({ success: false, error: error.message });
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     }
 });
 
@@ -255,32 +212,12 @@ app.get('/status', (req, res) => {
     res.json({ 
         connected: isConnected, 
         ready: sock !== null,
-<<<<<<< HEAD
-        reconnectAttempts: isReconnecting ? 1 : 0 
-=======
         botPhone: sock?.user?.id ? cleanPhoneNumber(sock.user.id.split(':')[0]) : null,
         queueSize: messageQueue.length
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     });
 });
 
 server.listen(PORT, () => {
-<<<<<<< HEAD
-    console.log(`🚀 API en http://localhost:${PORT}`);
-});
-
-// ===== FUNCIÓN DE RECONEXIÓN CONTROLADA =====
-async function reconnectBot() {
-    if (isReconnecting) {
-        console.log('⚠️ Ya hay un intento de reconexión en curso');
-        return;
-    }
-    
-    isReconnecting = true;
-    console.log('🔄 Intentando reconexión en 5 segundos...');
-    
-    // Limpiar timer anterior si existe
-=======
     console.log(`🚀 API del Bot en http://localhost:${PORT}`);
 });
 
@@ -289,7 +226,6 @@ async function reconnectBot() {
     isReconnecting = true;
     console.log('🔄 Intentando reconexión en 5 segundos...');
     
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -307,11 +243,6 @@ async function reconnectBot() {
     }, 5000);
 }
 
-<<<<<<< HEAD
-// ===== FUNCIÓN PRINCIPAL CORREGIDA =====
-async function startBot() {
-    console.log('🤖 Iniciando bot de WhatsApp con Gemini...');
-=======
 function cleanPhoneNumber(phone) {
     if (!phone) return null;
     let raw = String(phone).replace(/\D/g, '');
@@ -373,53 +304,17 @@ setInterval(async () => {
 
 async function startBot() {
     console.log('🤖 Iniciando bot de WhatsApp para el Comercio (Modo Emparejamiento por Código)...');
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
 
     try {
         const { state, saveCreds } = await useMultiFileAuthState('sessions');
         
-<<<<<<< HEAD
-        // ===== CONFIGURACIÓN DEL SOCKET CORREGIDA =====
         sock = makeWASocket({
             auth: state,
             printQRInTerminal: false,
-=======
-        sock = makeWASocket({
-            auth: state,
-            printQRInTerminal: false, // Ya no usamos QR visual
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
             browser: Browsers.macOS('Desktop'),
             generateHighQualityLink: false,
             markOnlineOnConnect: false,
             syncFullHistory: false,
-<<<<<<< HEAD
-            shouldSyncHistoryMessage: () => false,  // 🔥 PARCHE CRÍTICO
-            connectTimeoutMs: 60000,
-            qrTimeout: 60000,
-            retryRequestDelayMs: 250,
-            getMessage: async (key) => {
-                return { conversation: 'Hola' };
-            }
-        });
-
-        // ===== EVENTO DE CONEXIÓN CORREGIDO =====
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-
-            if (qr) {
-                qrCode = qr;
-                console.log('📱 Escanea el código QR con WhatsApp:');
-                QRCodeTerminal.generate(qr, { small: true }); 
-                console.log('💡 Ver QR como imagen en: http://localhost:3001/qr');
-            }
-
-            if (connection === 'open') {
-                isConnected = true;
-                qrCode = null;
-                isReconnecting = false;
-                console.log('✅ WhatsApp conectado exitosamente!');
-                console.log('📱 Bot listo para recibir mensajes');
-=======
             shouldSyncHistoryMessage: () => false,
             connectTimeoutMs: 60000,
             retryRequestDelayMs: 500,
@@ -434,113 +329,27 @@ async function startBot() {
                 isReconnecting = false;
                 const botNumber = sock.user?.id ? cleanPhoneNumber(sock.user.id.split(':')[0]) : 'Desconocido';
                 console.log(`✅ WhatsApp del Comercio conectado exitosamente! (Número: ${botNumber})`);
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
             }
 
             if (connection === 'close') {
                 isConnected = false;
                 const statusCode = new Boom(lastDisconnect?.error)?.output?.statusCode;
-<<<<<<< HEAD
-                const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-                console.log(`📴 Conexión cerrada. Código: ${statusCode}`);
-                
-                if (shouldReconnect) {
-                    await reconnectBot();  // 🟢 Reconexión controlada
-                } else {
-                    console.log('❌ Sesión cerrada permanentemente (LoggedOut). Borra la carpeta "sessions" y escanea el QR nuevamente.');
-=======
                 if (statusCode !== DisconnectReason.loggedOut) {
                     await reconnectBot();
                 } else {
                     console.log('❌ Sesión cerrada. Borra la carpeta "sessions" para re-vincular.');
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
                 }
             }
         });
 
         sock.ev.on('creds.update', saveCreds);
 
-<<<<<<< HEAD
-        // ===== MANEJADOR DE MENSAJES CORREGIDO =====
-=======
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
         sock.ev.on('messages.upsert', async (msgUpdate) => {
             try {
                 const msgs = msgUpdate.messages;
                 if (!msgs || msgs.length === 0) return;
 
                 for (const msg of msgs) {
-<<<<<<< HEAD
-                    // 🔥 VALIDACIÓN MEJORADA
-                    if (!msg?.message) continue;
-                    if (msg.key.fromMe) continue;
-                    
-                    const from = msg.key.remoteJid;
-                    if (!from) continue;
-                    
-                    // 🟢 PERMITIR GRUPOS PERO CON DIFERENTE MANEJO
-                    const isGroup = from.includes('@g.us');
-                    const isBroadcast = from.includes('@broadcast');
-                    
-                    // Saltar broadcasts pero procesar grupos
-                    if (isBroadcast) continue;
-                    
-                    // Para grupos, verificar que mencionen al bot o tengan mensaje directo
-                    if (isGroup) {
-                        const botId = sock.user?.id?.split(':')[0];
-                        const mentioned = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
-                        const isMentioned = mentioned.includes(sock.user?.id) || 
-                                           msg.message.extendedTextMessage?.contextInfo?.participant === sock.user?.id;
-                        
-                        // Si es grupo pero no mencionan al bot, ignorar
-                        if (!isMentioned) continue;
-                    }
-
-                    // Extraer texto del mensaje
-                    const text = msg.message.conversation || 
-                               msg.message.extendedTextMessage?.text || 
-                               msg.message.ephemeralMessage?.message?.conversation ||
-                               msg.message.ephemeralMessage?.message?.extendedTextMessage?.text || 
-                               msg.message.imageMessage?.caption || 
-                               msg.message.videoMessage?.caption || '';
-
-                    if (!text) continue;
-
-                    // 🟢 RATE LIMITING
-                    const userKey = from;
-                    const now = Date.now();
-                    
-                    // Verificar cooldown por usuario
-                    if (userMessageCooldown.has(userKey)) {
-                        const lastMessage = userMessageCooldown.get(userKey);
-                        if (now - lastMessage < COOLDOWN_MS) {
-                            console.log(`⏳ Rate limit para ${from.split('@')[0]}`);
-                            continue;
-                        }
-                    }
-                    
-                    // Actualizar cooldown
-                    userMessageCooldown.set(userKey, now);
-                    
-                    // Limpiar cooldown antiguos
-                    if (userMessageCooldown.size > 1000) {
-                        const oldEntries = Array.from(userMessageCooldown.entries())
-                            .filter(([_, time]) => now - time > 60000);
-                        oldEntries.forEach(([key]) => userMessageCooldown.delete(key));
-                    }
-
-                    // 🟢 LOG SEGURO (sin exponer datos completos)
-                    const userPhone = from.split('@')[0];
-                    const logText = text.length > 50 ? text.substring(0, 50) + '...' : text;
-                    console.log(`📩 Mensaje de ${userPhone}${isGroup ? ' (grupo)' : ''}: ${logText}`);
-
-                    // 🟢 PROCESAR MENSAJE DE FORMA ASÍNCRONA CON MANEJO DE ERRORES
-                    try {
-                        await handleMessage(from, text, isGroup);
-                    } catch (err) {
-                        console.error(`❌ Error procesando mensaje de ${userPhone}:`, err.message);
-                        await sendMessage(from, '⚠️ Ocurrió un error procesando tu mensaje. Intenta de nuevo.');
-=======
                     if (!msg?.message || msg.key.fromMe) continue;
                     const from = msg.key.remoteJid;
                     if (!from || from.includes('@broadcast') || from.includes('@g.us')) continue;
@@ -567,7 +376,6 @@ async function startBot() {
                         await handleClientMessage(from, text, clientIdentifier, msg);
                     } catch (err) {
                         console.error(`❌ Error procesando mensaje de cliente:`, err.message);
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
                     }
                 }
             } catch (error) {
@@ -581,190 +389,6 @@ async function startBot() {
     }
 }
 
-<<<<<<< HEAD
-// ===== MANEJADOR DE MENSAJES CORREGIDO =====
-async function handleMessage(from, text, isGroup = false) {
-    try {
-        const phone = from.replace(/@s\.whatsapp\.net$/, '');
-        console.log(`📞 Procesando número: ${phone}${isGroup ? ' (grupo)' : ''}`);
-
-        let commerce = null;
-        let dbError = null;
-        
-        try {
-            // 🟢 VALIDACIÓN MEJORADA DE SUPABASE
-            const result = await supabase
-                .from('commerce')
-                .select('*')
-                .eq('phone', phone)
-                .maybeSingle();  // 🟢 Usar maybeSingle en lugar de single
-            
-            commerce = result.data;
-            dbError = result.error;
-            
-            if (dbError) {
-                console.error('⚠️ Error Supabase:', dbError.message);
-            }
-        } catch (err) {
-            console.error('⚠️ Error consultando Supabase:', err.message);
-            dbError = err;
-        }
-
-        // 🟢 VALIDACIÓN DE COMERCIO
-        if (dbError || !commerce || typeof commerce !== 'object') {
-            console.log('🤖 Usuario no registrado en Senda');
-            
-            // 🟢 RESPUESTA DIFERENTE PARA GRUPOS
-            if (isGroup) {
-                await sendMessage(from, 
-                    `👋 Hola! Soy Senda, asistente de facturación. \n\n` +
-                    `Para usar mis servicios, registra tu número en: https://senda.com/register\n\n` +
-                    `Comandos disponibles en privado: *hola*, *estado*, *factura*, *pagar*`
-                );
-            } else {
-                try {
-                    const prompt = `Eres Senda, un asistente de facturación. Un usuario te acaba de escribir: "${text}". 
-                    Si el usuario te pide facturar (con frases como "factura", "mi factura", "quiero facturar", "hacer factura", "facturar"), 
-                    responde pidiéndole los datos del cliente (RFC, Nombre o Razón Social, Correo electrónico, Monto y Concepto).
-                    Si pide estado o su cuenta ("estado", "cuenta", "mi cuenta"), dale el estado de su cuenta.
-                    Si pide pagar ("pagar", "pago", "link de pago", "quiero pagar"), dale el link de pago.
-                    Si dice "hola" o "inicio", dale la bienvenida y explícale los comandos.
-                    Si no entiendes, responde amablemente diciendo que su número no está registrado en Senda y que visite https://senda.com/register para registrarse. 
-                    Mantén la respuesta corta, amable y en español.`;
-
-                    const result = await model.generateContent(prompt);
-                    const response = result.response.text();
-                    await sendMessage(from, response);
-                } catch (geminiError) {
-                    console.error('❌ Error con Gemini:', geminiError.message);
-                    await sendMessage(from, 
-                        '🤖 ¡Hola! Soy Senda, tu asistente.\n\n' +
-                        'Para usar el bot, registra tu número en: https://senda.com/register\n\n' +
-                        'Comandos: *hola*, *estado*, *factura*, *pagar*'
-                    );
-                }
-            }
-            return;
-        }
-
-        // 🟢 VALIDAR ESTRUCTURA DE DATOS
-        if (!commerce.business_name || !commerce.phone) {
-            console.error('⚠️ Datos de comercio incompletos:', commerce);
-            await sendMessage(from, 
-                '⚠️ Tu cuenta está incompleta. Contacta a soporte: https://senda.com/support'
-            );
-            return;
-        }
-
-        // 🟢 PROCESAR COMANDOS
-        const lower = text.toLowerCase().trim();
-
-        // Comandos principales
-        const commands = {
-            'hola': () => sendMessage(from, 
-                `👋 ¡Hola ${commerce.business_name}!\n\n` +
-                'Soy Senda, tu asistente de facturación.\n\n' +
-                '📄 *factura* - Iniciar nueva factura\n' +
-                '📊 *estado* - Ver tu cuenta\n' +
-                '💰 *pagar* - Obtener link de pago\n' +
-                'ℹ️ *ayuda* - Ver comandos'
-            ),
-            
-            'factura': () => sendMessage(from,
-                '📄 *Iniciando facturación*\n\n' +
-                'Envía los datos del cliente:\n' +
-                '• *RFC*\n' +
-                '• *Nombre o Razón Social*\n' +
-                '• *Correo electrónico*\n' +
-                '• *Monto*\n' +
-                '• *Concepto*\n\n' +
-                'Ejemplo:\n' +
-                'RFC: ABC123456DEF\n' +
-                'Nombre: Juan Pérez\n' +
-                'Correo: juan@empresa.com\n' +
-                'Monto: $1,500 MXN\n' +
-                'Concepto: Servicio de consultoría'
-            ),
-            
-            'estado': () => sendMessage(from,
-                `📊 *Estado de tu cuenta*\n\n` +
-                `🏢 ${commerce.business_name}\n` +
-                `📱 ${commerce.phone}\n` +
-                `📌 ${commerce.is_active ? '✅ Cuenta activa' : '⛔ Cuenta inactiva'}\n` +
-                `💎 ${commerce.is_premium ? '⭐ Plan Premium' : '📄 Plan Gratuito'}\n` +
-                `📄 Facturas emitidas: ${commerce.invoice_count || 0}/5\n` +
-                `💰 Saldo pendiente: ${commerce.balance || '$0.00'}`
-            ),
-            
-            'pagar': () => sendMessage(from,
-                '💰 *Link de pago*\n\n' +
-                'Activa tu cuenta por $50 MXN mensuales\n' +
-                '🔗 Link de pago: https://senda.com/pagar\n\n' +
-                '💳 Aceptamos:\n' +
-                '• Tarjetas de crédito/débito\n' +
-                '• Transferencia bancaria\n' +
-                '• PayPal'
-            ),
-            
-            'ayuda': () => sendMessage(from,
-                'ℹ️ *Comandos disponibles:*\n\n' +
-                '👋 *hola* - Ver menú principal\n' +
-                '📄 *factura* - Iniciar facturación\n' +
-                '📊 *estado* - Ver estado de cuenta\n' +
-                '💰 *pagar* - Link de pago\n' +
-                'ℹ️ *ayuda* - Este mensaje\n\n' +
-                '❓ ¿Preguntas? Visita: https://senda.com/soporte'
-            )
-        };
-
-        // Verificar comandos exactos
-        if (commands[lower]) {
-            await commands[lower]();
-            return;
-        }
-
-        // 🟢 BÚSQUEDA DE COMANDOS PARCIALES
-        const matchedCommand = Object.keys(commands).find(cmd => 
-            lower.includes(cmd) && cmd.length > 2
-        );
-
-        if (matchedCommand) {
-            await commands[matchedCommand]();
-            return;
-        }
-
-        // Si no hay comando coincidente
-        await sendMessage(from,
-            '🤔 No entendí tu mensaje.\n\n' +
-            'Comandos disponibles:\n' +
-            '📄 *factura* - Nueva factura\n' +
-            '📊 *estado* - Tu cuenta\n' +
-            '💰 *pagar* - Link de pago\n' +
-            '👋 *hola* - Menú principal\n\n' +
-            'O escribe *ayuda* para más información.'
-        );
-
-    } catch (error) {
-        console.error('❌ Error en handleMessage:', error);
-        await sendMessage(from, '⚠️ Ocurrió un error interno. Intenta de nuevo.');
-    }
-}
-
-// ===== FUNCIÓN PARA ENVIAR MENSAJES =====
-async function sendMessage(to, text) {
-    try {
-        if (!sock) {
-            console.error('❌ Socket no disponible');
-            return false;
-        }
-
-        const jid = to.includes('@s.whatsapp.net') ? to : `${to}@s.whatsapp.net`;
-        await sock.sendMessage(jid, { text });
-        console.log(`✅ Mensaje enviado a ${to.split('@')[0]}`);
-        return true;
-    } catch (error) {
-        console.error(`⚠️ Falló el envío a ${to.split('@')[0]}:`, error.message);
-=======
 async function handleClientMessage(from, text, clientIdentifier, msg) {
     const botJid = sock.user?.id ? sock.user.id.split(':')[0] : null;
     let cleanBotPhone = cleanPhoneNumber(botJid);
@@ -868,12 +492,10 @@ async function downloadAndSendInvoice(from, fullInvoice) {
         return true;
     } catch (error) {
         await sendMessageWithRetry(from, `🎉 *¡Factura Timbrada con Éxito!*\n\n*UUID:* ${fullInvoice.id}`);
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
         return false;
     }
 }
 
-<<<<<<< HEAD
 // ===== MANEJO DE SEÑALES PARA CIERRE GRACIAL =====
 process.on('SIGINT', async () => {
     console.log('\n🛑 Recibida señal de interrupción. Cerrando bot...');
@@ -914,7 +536,4 @@ setInterval(() => {
     if (!isConnected && sock) {
         console.warn('⚠️ Bot conectado pero no está en estado "open"');
     }
-}, 60000); // Revisar cada minuto
-=======
-startBot().catch(console.error);
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
+}, 60000);

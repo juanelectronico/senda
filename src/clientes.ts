@@ -21,21 +21,20 @@ export async function getCustomers(req: Request, res: Response) {
  */
 export async function createCustomer(req: Request, res: Response) {
   try {
-    const { name, email, taxId, taxRegimen, zipCode } = req.body;
+    const { rfc, razonSocial, email, commerceId } = req.body;
 
-    if (!name || !email || !taxId || !taxRegimen || !zipCode) {
+    if (!rfc || !razonSocial || !email || !commerceId) {
       return res.status(400).json({
         success: false,
-        message: 'Faltan campos obligatorios (name, email, taxId, taxRegimen, zipCode)',
+        message: 'Faltan campos obligatorios (rfc, razonSocial, email, commerceId)',
       });
     }
 
     const newCustomer = await CustomerService.createCustomer({
-      name,
+      rfc,
+      razonSocial,
       email,
-      taxId,
-      taxRegimen,
-      zipCode,
+      commerceId,
     });
 
     res.status(201).json(newCustomer);

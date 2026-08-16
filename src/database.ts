@@ -4,9 +4,13 @@ const prisma = new PrismaClient();
 
 export const guardarRFC = async (rfc: string) => {
   try {
-    const nuevoCliente = await prisma.user.create({
+    // NOTA: Como no tenemos los otros datos, ponemos valores dummy para que Prisma no falle
+    const nuevoCliente = await prisma.customer.create({
       data: {
         rfc: rfc.toUpperCase().trim(),
+        razonSocial: 'Cliente Temporal',
+        email: 'temp@example.com',
+        commerceId: 'commerce_principal'
       },
     });
     console.log("✅ Cliente guardado con éxito:", nuevoCliente.rfc);

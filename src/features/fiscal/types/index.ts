@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-=======
 // src/features/fiscal/types/index.ts
 
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
 export interface FiscalData {
   rfc: string;
   razonSocial: string;
@@ -10,6 +7,7 @@ export interface FiscalData {
   usoCFDI: string;
   codigoPostal: string;
   email: string;
+  monto?: number;
 }
 
 export interface Invoice {

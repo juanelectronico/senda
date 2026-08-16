@@ -9,21 +9,13 @@ interface ValidationResult {
 }
 
 export class FiscalValidator {
-<<<<<<< HEAD
-  public readonly REGIMENES_VALIDOS = [
-=======
   private readonly REGIMENES_VALIDOS = [
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     '601', '603', '605', '606', '607', '608', '609', '610',
     '611', '612', '614', '615', '616', '620', '621', '622',
     '623', '624', '625', '626', '628', '629', '630'
   ];
 
-<<<<<<< HEAD
-  public readonly USOS_CFDI_VALIDOS = [
-=======
   private readonly USOS_CFDI_VALIDOS = [
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     'G01', 'G02', 'G03', 'G04', 'G05', 'G06', 'G07', 'G08',
     'G09', 'G10', 'G11', 'G12', 'G13', 'G14', 'G15', 'G16',
     'G17', 'G18', 'G19', 'G20', 'G21', 'G22', 'G23', 'G24',
@@ -56,47 +48,23 @@ export class FiscalValidator {
     }
 
     // Validar Régimen Fiscal
-<<<<<<< HEAD
-    const regimenUpper = data.regimenFiscal ? data.regimenFiscal.toString().trim().toUpperCase() : '';
-    if (!data.regimenFiscal) {
-      missingFields.push('Régimen Fiscal');
-    } else if (!this.REGIMENES_VALIDOS.includes(regimenUpper)) {
-=======
     if (!data.regimenFiscal) {
       missingFields.push('Régimen Fiscal');
     } else if (!this.REGIMENES_VALIDOS.includes(data.regimenFiscal)) {
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
       errors.push({ 
         field: 'Régimen Fiscal', 
         message: `El régimen ${data.regimenFiscal} no es válido. Usa: 601, 612, etc.` 
       });
-<<<<<<< HEAD
-    } else {
-      data.regimenFiscal = regimenUpper;
-    }
-
-    // Validar Uso CFDI
-    const usoUpper = data.usoCFDI ? data.usoCFDI.toString().trim().toUpperCase() : '';
-    if (!data.usoCFDI) {
-      missingFields.push('Uso CFDI');
-    } else if (!this.USOS_CFDI_VALIDOS.includes(usoUpper)) {
-=======
     }
 
     // Validar Uso CFDI
     if (!data.usoCFDI) {
       missingFields.push('Uso CFDI');
     } else if (!this.USOS_CFDI_VALIDOS.includes(data.usoCFDI)) {
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
       errors.push({ 
         field: 'Uso CFDI', 
         message: `El uso CFDI ${data.usoCFDI} no es válido. Usa: G01, G03, etc.` 
       });
-<<<<<<< HEAD
-    } else {
-      data.usoCFDI = usoUpper;
-=======
->>>>>>> 9982343a0714c4a282235e500e86481e4627361f
     }
 
     // Validar Código Postal

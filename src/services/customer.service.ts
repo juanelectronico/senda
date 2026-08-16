@@ -11,22 +11,20 @@ export class CustomerService {
   }
 
   /**
-   * Crear un nuevo cliente en la base de datos local
+   * Crear un nuevo cliente en la base de datos
    */
   static async createCustomer(data: {
-    name: string;
+    rfc: string;
+    razonSocial: string;
     email: string;
-    taxId: string;
-    taxRegimen: string;
-    zipCode: string;
+    commerceId: string;
   }) {
     return await prisma.customer.create({
       data: {
-        name: data.name,
+        rfc: data.rfc,
+        razonSocial: data.razonSocial,
         email: data.email,
-        taxId: data.taxId,
-        taxRegimen: data.taxRegimen,
-        zipCode: data.zipCode,
+        commerceId: data.commerceId,
       },
     });
   }
