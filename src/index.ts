@@ -181,7 +181,7 @@ app.post('/api/commerce/register', registerLimiter, async (req: Request, res: Re
             success: true,
             message: '✅ Registro exitoso. Procede al pago.',
             init_point: result.init_point,
-            commerceId: data.id, // <-- Importante para que el frontend redirija correctamente
+            commerceId: data.id, 
             commerce: { id: data.id, business_name: data.business_name, email: data.email, phone: data.phone }
         });
 
@@ -259,19 +259,23 @@ app.get('/payment/success', async (req, res) => {
     
     if (!commerceId) return res.status(400).send('ID de comercio no proporcionado');
 
-    try {
-        if (supabase) {
-            const { data: commerce } = await supabase
-                .from('commerce')
-                .select('phone')
-                .eq('id', commerceId)
-                .single();
-
-            if (commerce?.phone) {
-                startWhatsAppBotForCommerce(commerceId, commerce.phone, true).catch(() => {});
-            }
-        }
-    } catch (e) {}
+    // 🔥 CORRECCIÓN: Lanzar en segundo plano para no congelar la respuesta HTTP
+    if (supabase) {
+        supabase
+            .from('commerce')
+            .select('phone')
+            .eq('id', commerceId)
+            .single()
+            .then(({ data: commerce }) => {
+                if (commerce?.phone) {
+                    console.log(`🚀 Iniciando bot de WhatsApp en segundo plano para: ${commerceId}`);
+                    startWhatsAppBotForCommerce(commerceId, commerce.phone, true).catch(err => {
+                        console.error(`❌ Error en bot de WhatsApp para ${commerceId}:`, err);
+                    });
+                }
+            })
+            .catch(err => console.error('❌ Error buscando comercio:', err));
+    }
 
     res.send(`
         <!DOCTYPE html>
