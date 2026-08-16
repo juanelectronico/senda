@@ -259,7 +259,6 @@ app.get('/payment/success', async (req, res) => {
     
     if (!commerceId) return res.status(400).send('ID de comercio no proporcionado');
 
-    // 🔥 CORRECCIÓN: Lanzar en segundo plano para no congelar la respuesta HTTP
     if (supabase) {
         supabase
             .from('commerce')
@@ -269,7 +268,7 @@ app.get('/payment/success', async (req, res) => {
             .then(({ data: commerce }) => {
                 if (commerce?.phone) {
                     console.log(`🚀 Iniciando bot de WhatsApp en segundo plano para: ${commerceId}`);
-                    startWhatsAppBotForCommerce(commerceId, commerce.phone, true).catch(err => {
+                    Promise.resolve(startWhatsAppBotForCommerce(commerceId, commerce.phone, true)).catch(err => {
                         console.error(`❌ Error en bot de WhatsApp para ${commerceId}:`, err);
                     });
                 }
