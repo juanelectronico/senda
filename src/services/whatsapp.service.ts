@@ -287,21 +287,10 @@ async function requestPairingCodeWithRetry(
                 return;
             }
 
-            const code = update.pairingCode || update.qr;
-            if (code && !resolved) {
-                resolved = true;
-                clearTimeout(timeoutId);
-                sock.ev.off('connection.update', handler);
-
-                pairingCodes.set(commerceId, code);
-                console.log(`✨ [${commerceId}] ¡Código recibido por evento!: ${code}`);
-                resolve(code);
-            }
-
             if (update.connection === 'close' && !resolved) {
                 const error = update.lastDisconnect?.error;
                 const statusCode = (error as any)?.output?.statusCode;
-                // Ignoramos cierres menores durante la negociación inicial
+                
                 if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                     resolved = true;
                     clearTimeout(timeoutId);
@@ -321,12 +310,15 @@ async function requestPairingCodeWithRetry(
             return;
         }
 
-        // Lanzar petición de pairing code con reintento rápido si falla la primera
         try {
-            await sleep(2000); // Dar un respiro al socket abierto
-            if (!resolved && !sock.user) {
+            // EL CAMBIO PRINCIPAL: Damos 3 segundos de respiro antes de pedir el código
+            await sleep(3000); 
+            
+            if (!resolved && !sock.authState.creds.registered) {
                 console.log(`📞 [${commerceId}] Enviando petición requestPairingCode...`);
-                const code = await sock.requestPairingCode(cleanPhone);
+                // Aseguramos que el teléfono no tenga ningún carácter extraño antes de pedir a Baileys
+                const code = await sock.requestPairingCode(cleanPhone.replace(/\D/g, ''));
+                
                 if (code && !resolved) {
                     resolved = true;
                     clearTimeout(timeoutId);
@@ -337,7 +329,7 @@ async function requestPairingCodeWithRetry(
                 }
             }
         } catch (err: any) {
-            console.log(`⚠️ [${commerceId}] Advertencia al solicitar pairing code (esperando evento):`, err?.message);
+            console.log(`⚠️ [${commerceId}] Advertencia al solicitar pairing code:`, err?.message);
         }
     });
 }
