@@ -29,16 +29,6 @@ router.get('/get-qr', async (req: Request, res: Response) => {
         let status = getSessionStatus(id);
         let codeInfo = getCodeWithType(id);
 
-        // Si no existe sesión en memoria (ej. Render reinició el servidor), 
-        // rescatamos el teléfono de Supabase y arrancamos el bot automáticamente.
-        if (!status.exists && !codeInfo.code) {
-            console.log(`⚠️ [${id}] Sesión no encontrada en memoria. Buscando comercio en Supabase...`);
-            const { data: commerce, error } = await supabase
-                .from('commerce')
-                .select('phone')
-                .eq('id', id)
-                .single();
-
             if (commerce?.phone) {
                 console.log(`🚀 [${id}] Teléfono encontrado (${commerce.phone}). Auto-iniciando bot...`);
                 // Llamamos a start en segundo plano o esperamos a que genere el código
