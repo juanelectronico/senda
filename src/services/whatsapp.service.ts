@@ -264,19 +264,25 @@ async function requestPairingCodeWithRetry(
     commerceId: string,
     cleanPhone: string
 ): Promise<string> {
-    console.log(`🔑 [${commerceId}] Solicitando código de 8 dígitos para ${cleanPhone}...`);
+    console.log(`🔑 [${commerceId}] Solicitando código de 8 dígitos...`);
 
     return new Promise(async (resolve, reject) => {
         let resolved = false;
-        let timeoutId: NodeJS.Timeout;
+        
+        // Verificamos si ya tenemos un código guardado para reutilizarlo y evitar cambios innecesarios
+        const existingCode = pairingCodes.get(commerceId);
+        if (existingCode && existingCode.length === 8) {
+            console.log(`✨ [${commerceId}] Reutilizando código activo existente: ${existingCode}`);
+            resolve(existingCode);
+            return;
+        }
 
-        timeoutId = setTimeout(() => {
+        const timeoutId = setTimeout(() => {
             if (!resolved) {
                 resolved = true;
-                sock.ev.off('connection.update', handler);
-                reject(new Error(`Timeout esperando código de emparejamiento después de ${CONFIG.CONNECTION_TIMEOUT_MS}ms`));
+                reject(new Error(`Timeout: No se recibió código para ${commerceId}`));
             }
-        }, CONFIG.CONNECTION_TIMEOUT_MS);
+        }, 45000);
 
         const handler = (update: any) => {
             if (sock.user && !resolved) {
@@ -311,25 +317,35 @@ async function requestPairingCodeWithRetry(
         }
 
         try {
-            // EL CAMBIO PRINCIPAL: Damos 3 segundos de respiro antes de pedir el código
-            await sleep(3000); 
+            await sleep(4000); 
             
             if (!resolved && !sock.authState.creds.registered) {
-                console.log(`📞 [${commerceId}] Enviando petición requestPairingCode...`);
-                // Aseguramos que el teléfono no tenga ningún carácter extraño antes de pedir a Baileys
+                console.log(`📞 [${commerceId}] Ejecutando petición requestPairingCode...`);
                 const code = await sock.requestPairingCode(cleanPhone.replace(/\D/g, ''));
                 
-                if (code && !resolved) {
+                if (!resolved) {
                     resolved = true;
                     clearTimeout(timeoutId);
                     sock.ev.off('connection.update', handler);
+                    
                     pairingCodes.set(commerceId, code);
-                    console.log(`✨ [${commerceId}] ¡Código obtenido directamente!: ${code}`);
+                    console.log(`✅ [${commerceId}] Código definitivo generado: ${code}`);
                     resolve(code);
                 }
+            } else {
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                resolve('ALREADY_AUTHENTICATED');
             }
         } catch (err: any) {
-            console.log(`⚠️ [${commerceId}] Advertencia al solicitar pairing code:`, err?.message);
+            console.error(`❌ [${commerceId}] Error al generar código:`, err?.message);
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                reject(err);
+            }
         }
     });
 }
