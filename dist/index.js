@@ -202,13 +202,16 @@ app.post('/api/payment/webhook', async (req, res) => {
     }
 });
 
-// ===== RUTA: OBTENER QR =====
+// ===== RUTA: OBTENER QR (CORREGIDA CON FORZADO DE INICIO) =====
 app.get('/api/whatsapp/get-qr', async (req, res) => {
     try {
         const { id } = req.query;
         if (!id || typeof id !== 'string') {
             return res.status(400).json({ success: false, error: 'ID de comercio es requerido' });
         }
+        
+        // Verificar que el comercio existe y está activo
+        let phone = null;
         if (supabase) {
             const { data: commerce, error } = await supabase
                 .from('commerce')
@@ -218,22 +221,61 @@ app.get('/api/whatsapp/get-qr', async (req, res) => {
             if (error || !commerce || !commerce.is_active) {
                 return res.status(403).json({ success: false, error: 'Comercio no activo o no encontrado' });
             }
+            phone = commerce.phone;
+            console.log(`📱 [get-qr] Número obtenido de Supabase: ${phone}`);
         }
         
-        // Importación dinámica para prevenir bloqueos de inicio
-        const { pairingCodes, getSessionStatus } = await import('./services/whatsapp.service.js');
+        // Importar servicios
+        const { pairingCodes, getSessionStatus, startWhatsAppBotForCommerce } = await import('./services/whatsapp.service.js');
         
-        const rawCode = pairingCodes.get(id) || null;
-        if (rawCode) {
-            return res.json({ success: true, qr: rawCode, status: 'ready', isPairing: false });
-        }
+        // 1. VERIFICAR SI YA ESTÁ CONECTADO
         const status = getSessionStatus(id);
         if (status.exists && !status.isPairing) {
             return res.json({ success: true, status: 'connected', message: 'WhatsApp ya está conectado' });
         }
-        return res.json({ success: true, status: status.isPairing ? 'pairing' : 'waiting', message: 'Procesando QR...' });
+        
+        // 2. VERIFICAR SI HAY UN CÓDIGO GENERADO
+        const rawCode = pairingCodes.get(id) || null;
+        if (rawCode) {
+            console.log(`🔢 [get-qr] Código encontrado para ${id}: ${rawCode}`);
+            return res.json({ success: true, qr: rawCode, status: 'ready', isPairing: false });
+        }
+        
+        // 3. FORZAR EL INICIO DEL BOT SI NO HAY NADA
+        if (phone) {
+            console.log(`🔄 [get-qr] Forzando inicio del bot para comercio ${id} con teléfono ${phone}`);
+            // Iniciar el bot en segundo plano (sin await para no bloquear)
+            startWhatsAppBotForCommerce(id, phone, true).catch(err => {
+                console.error(`❌ Error iniciando bot para ${id}:`, err);
+            });
+            
+            // Esperar 2 segundos para que el bot genere el código
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+            // Verificar si ya se generó el código después del inicio forzado
+            const newCode = pairingCodes.get(id) || null;
+            if (newCode) {
+                console.log(`✅ [get-qr] Código generado después de forzar: ${newCode}`);
+                return res.json({ success: true, qr: newCode, status: 'ready', isPairing: false });
+            }
+            
+            // Si aún no hay código, devolver status 'pairing' para que el frontend espere
+            return res.json({ 
+                success: true, 
+                status: 'pairing', 
+                message: 'Iniciando bot de WhatsApp, espera unos segundos...' 
+            });
+        }
+        
+        // Si no hay teléfono, devolver waiting
+        return res.json({ 
+            success: true, 
+            status: 'waiting', 
+            message: 'Procesando...' 
+        });
     }
     catch (error) {
+        console.error('❌ Error en /get-qr:', error);
         return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
@@ -251,12 +293,17 @@ app.get('/payment/success', async (req, res) => {
                 .eq('id', commerceId)
                 .single();
             if (commerce?.phone) {
+                console.log(`📱 [payment/success] Número obtenido de Supabase: ${commerce.phone}`);
                 const { startWhatsAppBotForCommerce } = await import('./services/whatsapp.service.js');
                 startWhatsAppBotForCommerce(commerceId, commerce.phone, true).catch(() => { });
+            } else {
+                console.log(`⚠️ [payment/success] No se encontró teléfono para el comercio ${commerceId}`);
             }
         }
     }
-    catch (e) { }
+    catch (e) { 
+        console.error('❌ Error en /payment/success:', e);
+    }
     res.send(`
         <!DOCTYPE html>
         <html lang="es">
