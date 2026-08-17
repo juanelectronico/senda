@@ -6,7 +6,6 @@ import {
     getSessionStatus,
     startWhatsAppBotForCommerce 
 } from '../services/whatsapp.service';
-import { supabase } from '../services/supabase'; // Asegúrate de tener la importación de supabase
 
 const router = Router();
 
