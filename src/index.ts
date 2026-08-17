@@ -198,7 +198,32 @@ app.get('/api/whatsapp/get-qr', async (req: Request, res: Response) => {
     }
 });
 
-// ===== PÁGINA DE PAGO EXITOSO (CORREGIDA) =====
+// ===== REINICIAR SESIÓN =====
+app.get('/api/whatsapp/reset', async (req: Request, res: Response) => {
+    const { id } = req.query;
+    if (!id) return res.status(400).json({ success: false, error: 'ID requerido' });
+
+    try {
+        console.log(`🧹 [reset] Reiniciando sesión para comercio ${id}`);
+        
+        // Eliminar código guardado
+        pairingCodes.delete(id as string);
+        
+        // Cerrar sesión activa
+        const status = getSessionStatus(id as string);
+        if (status.exists) {
+            const { cleanupSession } = await import('./services/whatsapp.service.js');
+            await cleanupSession(id as string, true);
+        }
+        
+        res.json({ success: true, message: 'Sesión reiniciada correctamente' });
+    } catch (error) {
+        console.error(`❌ [reset] Error:`, error);
+        res.status(500).json({ success: false, error: 'Error interno' });
+    }
+});
+
+// ===== PÁGINA DE PAGO EXITOSO (CON QR) =====
 app.get('/payment/success', async (req, res) => {
     const commerceId = req.query.id as string;
     if (!commerceId) return res.status(400).send('ID faltante');
@@ -245,35 +270,43 @@ app.get('/payment/success', async (req, res) => {
                 .card { background: #1e293b; padding: 40px; border-radius: 20px; text-align: center; max-width: 420px; width: 100%; border: 1px solid #334155; box-shadow: 0 10px 40px rgba(0,0,0,0.3); }
                 h1 { color: #38bdf8; font-size: 24px; margin-bottom: 8px; }
                 .subtitle { color: #94a3b8; font-size: 14px; margin-bottom: 24px; }
-                .code-container { background: #0f172a; padding: 24px; border-radius: 12px; margin: 20px 0; border: 2px solid #38bdf8; }
-                .code { font-family: 'Courier New', monospace; font-size: 44px; letter-spacing: 8px; color: #38bdf8; font-weight: 700; min-height: 60px; }
+                .qr-container { background: #0f172a; padding: 24px; border-radius: 12px; margin: 20px 0; border: 2px solid #38bdf8; min-height: 200px; display: flex; align-items: center; justify-content: center; }
+                .qr-container img, .qr-container canvas { max-width: 220px; height: auto; }
                 .status { margin: 16px 0; font-size: 14px; color: #94a3b8; min-height: 24px; }
                 .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #334155; border-radius: 50%; border-top-color: #38bdf8; animation: spin 0.8s linear infinite; margin: 0 auto 8px; }
                 @keyframes spin { to { transform: rotate(360deg); } }
                 .payment-badge { background: #064e3b; color: #6ee7b7; padding: 8px 16px; border-radius: 8px; margin-bottom: 16px; font-weight: 500; }
                 .instructions { color: #94a3b8; font-size: 13px; margin: 12px 0; line-height: 1.6; }
                 .instructions strong { color: #f8fafc; }
-                .copy-btn { margin-top: 8px; padding: 6px 20px; background: #334155; border: none; border-radius: 6px; color: #f8fafc; cursor: pointer; font-size: 12px; transition: background 0.2s; }
-                .copy-btn:hover { background: #475569; }
                 .btn-group { margin-top: 20px; display: flex; flex-direction: column; gap: 10px; }
                 .btn { padding: 12px 24px; border-radius: 10px; font-weight: 600; font-size: 14px; border: none; cursor: pointer; text-decoration: none; text-align: center; width: 100%; }
                 .btn-secondary { background: #334155; color: #f8fafc; }
                 .btn-secondary:hover { background: #475569; }
+                .btn-success { background: #064e3b; color: #6ee7b7; }
+                .btn-success:hover { background: #0a5c4a; }
+                .badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; margin-top: 8px; }
+                .badge-ready { background: #064e3b; color: #6ee7b7; }
+                .badge-pairing { background: #78350f; color: #fcd34d; }
+                .badge-waiting { background: #1e3a8a; color: #93c5fd; }
+                .badge-connected { background: #064e3b; color: #6ee7b7; }
             </style>
         </head>
         <body>
             <div class="card">
                 <div class="payment-badge">✅ Pago confirmado</div>
                 <h1>📱 Vincula tu WhatsApp</h1>
-                <p class="subtitle">Ingresa el código de 8 dígitos en la app</p>
+                <p class="subtitle">Escanea el código QR con la app</p>
                 
-                <div class="code-container">
-                    <div class="code" id="codeDisplay">⏳</div>
+                <div class="qr-container" id="qrContainer">
+                    <div id="qrContent">
+                        <div class="spinner"></div>
+                        <p style="text-align: center; color: #94a3b8;">Generando código QR...</p>
+                    </div>
                 </div>
                 
                 <div id="statusContainer">
-                    <div class="spinner" id="spinner"></div>
-                    <div class="status" id="status">⏳ Generando código de vinculación...</div>
+                    <div class="status" id="status">⏳ Conectando con WhatsApp...</div>
+                    <span class="badge badge-waiting" id="statusBadge">⏳ Conectando...</span>
                 </div>
 
                 <div id="instructionsContainer" style="display: none;">
@@ -281,78 +314,101 @@ app.get('/payment/success', async (req, res) => {
                         📱 Abre WhatsApp y ve a:<br>
                         <strong>Ajustes → Dispositivos vinculados → Vincular un dispositivo</strong>
                     </p>
-                    <button class="copy-btn" id="copyBtn">📋 Copiar código</button>
+                    <p class="instructions" style="color: #fcd34d;">
+                        ⚠️ El QR expira en 2 minutos
+                    </p>
                 </div>
 
                 <div class="btn-group">
                     <button id="refreshBtn" class="btn btn-secondary">🔄 Reintentar</button>
+                    <a href="/api/whatsapp/reset?id=${commerceId}" class="btn btn-secondary" id="resetBtn">🧹 Reiniciar sesión</a>
                     <a href="/" class="btn btn-secondary">Ir al inicio</a>
                 </div>
             </div>
 
+            <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
             <script>
                 const id = new URLSearchParams(window.location.search).get('id');
-                let lastCode = '';
+                let lastQR = '';
 
                 function updateUI(data) {
-                    const codeDisplay = document.getElementById('codeDisplay');
+                    const content = document.getElementById('qrContent');
                     const statusEl = document.getElementById('status');
-                    const spinner = document.getElementById('spinner');
+                    const badge = document.getElementById('statusBadge');
                     const instructions = document.getElementById('instructionsContainer');
-                    const copyBtn = document.getElementById('copyBtn');
 
                     instructions.style.display = 'none';
-                    spinner.style.display = 'inline-block';
 
+                    // CASO 1: QR listo
                     if (data.success && data.qr && data.status === 'ready') {
                         const code = data.qr;
-                        if (/^\\d{8}$/.test(code)) {
-                            codeDisplay.textContent = code;
-                            statusEl.textContent = '🔢 Ingresa este código en WhatsApp (válido por 2 minutos)';
-                            statusEl.style.color = '#38bdf8';
-                            spinner.style.display = 'none';
+                        // Verificar si es QR (URL larga o string largo)
+                        if (code.length > 100) {
+                            content.innerHTML = '<canvas id="qrCanvas"></canvas>';
+                            try {
+                                QRCode.toCanvas(document.getElementById('qrCanvas'), code, { width: 220 }, function (error) {
+                                    if (error) console.error('Error generando QR:', error);
+                                });
+                            } catch (e) {
+                                console.error('Error:', e);
+                            }
+                            statusEl.textContent = '✅ Escanea este código QR en WhatsApp';
+                            statusEl.style.color = '#6ee7b7';
+                            badge.textContent = '📱 QR listo';
+                            badge.className = 'badge badge-ready';
                             instructions.style.display = 'block';
-                            
-                            copyBtn.onclick = () => {
-                                navigator.clipboard.writeText(code);
-                                copyBtn.textContent = '✅ ¡Copiado!';
-                                setTimeout(() => copyBtn.textContent = '📋 Copiar código', 2000);
-                            };
-                            
-                            lastCode = code;
+                            lastQR = code;
                             return;
                         }
                     }
 
+                    // CASO 2: Ya está conectado
                     if (data.status === 'connected') {
-                        codeDisplay.textContent = '✅';
+                        content.innerHTML = '<p style="color: #6ee7b7; font-weight: bold; font-size: 18px;">✅ WhatsApp vinculado con éxito</p>';
                         statusEl.textContent = '✅ WhatsApp vinculado con éxito';
                         statusEl.style.color = '#4ade80';
-                        spinner.style.display = 'none';
+                        badge.textContent = '✅ Conectado';
+                        badge.className = 'badge badge-connected';
                         instructions.style.display = 'none';
                         return;
                     }
 
+                    // CASO 3: Estado 'pairing' (esperando confirmación)
                     if (data.status === 'pairing') {
-                        codeDisplay.textContent = '...';
-                        statusEl.textContent = '⏳ Código generado, esperando confirmación en WhatsApp...';
+                        content.innerHTML = \`
+                            <div class="spinner"></div>
+                            <p style="text-align: center; color: #fcd34d;">⌛ Código generado, esperando confirmación...</p>
+                        \`;
+                        statusEl.textContent = '⏳ Esperando confirmación en WhatsApp...';
                         statusEl.style.color = '#fcd34d';
-                        spinner.style.display = 'inline-block';
+                        badge.textContent = '⏳ Esperando...';
+                        badge.className = 'badge badge-pairing';
                         return;
                     }
 
+                    // CASO 4: Estado 'waiting' (generando)
                     if (data.status === 'waiting' || !data.success) {
-                        codeDisplay.textContent = '⏳';
-                        statusEl.textContent = '⏳ Generando código de vinculación...';
+                        content.innerHTML = \`
+                            <div class="spinner"></div>
+                            <p style="text-align: center; color: #94a3b8;">Generando código QR...</p>
+                            <p style="text-align: center; color: #64748b; font-size: 13px;">⏳ Puede tomar hasta 40 segundos</p>
+                        \`;
+                        statusEl.textContent = '⏳ Generando código QR...';
                         statusEl.style.color = '#94a3b8';
-                        spinner.style.display = 'inline-block';
-                        instructions.style.display = 'none';
+                        badge.textContent = '⏳ Conectando...';
+                        badge.className = 'badge badge-waiting';
                         return;
                     }
 
-                    codeDisplay.textContent = '?';
-                    statusEl.textContent = '⏳ Procesando...';
+                    // CASO 5: Cualquier otro estado
+                    content.innerHTML = \`
+                        <div class="spinner"></div>
+                        <p style="text-align: center; color: #94a3b8;">Iniciando...</p>
+                    \`;
+                    statusEl.textContent = '⏳ Iniciando...';
                     statusEl.style.color = '#94a3b8';
+                    badge.textContent = '⏳ Iniciando...';
+                    badge.className = 'badge badge-waiting';
                 }
 
                 async function checkStatus() {
@@ -364,17 +420,20 @@ app.get('/payment/success', async (req, res) => {
                     } catch (e) {
                         console.error('❌ Error:', e);
                         document.getElementById('status').textContent = '❌ Error al conectar';
-                        document.getElementById('spinner').style.display = 'none';
+                        document.getElementById('statusBadge').textContent = '❌ Error';
                     }
                 }
 
+                // Ejecutar inmediatamente y cada 2 segundos
                 checkStatus();
                 const interval = setInterval(checkStatus, 2000);
 
+                // Botón de reintentar
                 document.getElementById('refreshBtn').addEventListener('click', () => {
                     window.location.reload();
                 });
 
+                // Limpiar intervalo si la página se cierra
                 window.addEventListener('beforeunload', () => clearInterval(interval));
             </script>
         </body>

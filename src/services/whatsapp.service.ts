@@ -183,11 +183,11 @@ async function performPairingWithLock(
 
         setupEventListeners(sock, commerceId, cleanPhone);
 
-        const code = await requestPairingCodeWithRetry(sock, commerceId, cleanPhone);
+        const code = await requestQRCode(sock, commerceId, cleanPhone);
 
         if (code !== 'ALREADY_AUTHENTICATED') {
             pairingCodes.set(commerceId, code);
-            console.log(`💾 [${commerceId}] Código guardado. Tamaño: ${pairingCodes.size}`);
+            console.log(`💾 [${commerceId}] QR guardado. Tamaño: ${pairingCodes.size}`);
         }
 
         const instance = activeSessions.get(commerceId);
@@ -196,7 +196,7 @@ async function performPairingWithLock(
         if (code === 'ALREADY_AUTHENTICATED') {
             console.log(`✅ [${commerceId}] Sesión ya autenticada, no se necesita código`);
         } else {
-            console.log(`✅ [${commerceId}] Código generado exitosamente: ${code}`);
+            console.log(`✅ [${commerceId}] QR generado exitosamente (longitud: ${code.length})`);
         }
         return code;
     } catch (error) {
@@ -257,22 +257,22 @@ async function createSocketWithRetry(
 }
 
 // ============================================
-// 8. SOLICITAR CÓDIGO DE EMPAREJAMIENTO
+// 8. SOLICITAR QR (NUEVO - REEMPLAZA EL CÓDIGO DE 8 DÍGITOS)
 // ============================================
-async function requestPairingCodeWithRetry(
+async function requestQRCode(
     sock: any,
     commerceId: string,
     cleanPhone: string
 ): Promise<string> {
-    console.log(`🔑 [${commerceId}] Solicitando código de 8 dígitos...`);
+    console.log(`📱 [${commerceId}] Generando QR en lugar de código de 8 dígitos...`);
 
     return new Promise(async (resolve, reject) => {
         let resolved = false;
         
-        // Verificamos si ya tenemos un código guardado para reutilizarlo y evitar cambios innecesarios
+        // Verificar si ya hay un QR guardado
         const existingCode = pairingCodes.get(commerceId);
-        if (existingCode && existingCode.length === 8) {
-            console.log(`✨ [${commerceId}] Reutilizando código activo existente: ${existingCode}`);
+        if (existingCode && existingCode.startsWith('https://wa.me/')) {
+            console.log(`✨ [${commerceId}] Reutilizando QR existente`);
             resolve(existingCode);
             return;
         }
@@ -280,12 +280,17 @@ async function requestPairingCodeWithRetry(
         const timeoutId = setTimeout(() => {
             if (!resolved) {
                 resolved = true;
-                reject(new Error(`Timeout: No se recibió código para ${commerceId}`));
+                reject(new Error(`Timeout: No se recibió QR para ${commerceId}`));
             }
-        }, 45000);
+        }, 60000);
 
+        // Escuchar el evento connection.update para capturar el QR
         const handler = (update: any) => {
+            console.log(`🔄 [${commerceId}] Evento connection.update:`, Object.keys(update));
+            
+            // Si ya está autenticado
             if (sock.user && !resolved) {
+                console.log(`✅ [${commerceId}] Usuario ya autenticado`);
                 resolved = true;
                 clearTimeout(timeoutId);
                 sock.ev.off('connection.update', handler);
@@ -293,6 +298,19 @@ async function requestPairingCodeWithRetry(
                 return;
             }
 
+            // Si hay un QR, lo guardamos
+            if (update.qr && !resolved) {
+                console.log(`📱 [${commerceId}] QR generado!`);
+                const qrCode = update.qr;
+                pairingCodes.set(commerceId, qrCode);
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                resolve(qrCode);
+                return;
+            }
+
+            // Si la conexión se cierra
             if (update.connection === 'close' && !resolved) {
                 const error = update.lastDisconnect?.error;
                 const statusCode = (error as any)?.output?.statusCode;
@@ -308,7 +326,9 @@ async function requestPairingCodeWithRetry(
 
         sock.ev.on('connection.update', handler);
 
+        // Si el socket ya tiene usuario, está autenticado
         if (sock.user && !resolved) {
+            console.log(`✅ [${commerceId}] Usuario ya autenticado (check 2)`);
             resolved = true;
             clearTimeout(timeoutId);
             sock.ev.off('connection.update', handler);
@@ -316,37 +336,14 @@ async function requestPairingCodeWithRetry(
             return;
         }
 
-        try {
-            await sleep(4000); 
-            
-            if (!resolved && !sock.authState.creds.registered) {
-                console.log(`📞 [${commerceId}] Ejecutando petición requestPairingCode...`);
-                const code = await sock.requestPairingCode(cleanPhone.replace(/\D/g, ''));
-                
-                if (!resolved) {
-                    resolved = true;
-                    clearTimeout(timeoutId);
-                    sock.ev.off('connection.update', handler);
-                    
-                    pairingCodes.set(commerceId, code);
-                    console.log(`✅ [${commerceId}] Código definitivo generado: ${code}`);
-                    resolve(code);
-                }
-            } else {
-                resolved = true;
-                clearTimeout(timeoutId);
-                sock.ev.off('connection.update', handler);
-                resolve('ALREADY_AUTHENTICATED');
-            }
-        } catch (err: any) {
-            console.error(`❌ [${commerceId}] Error al generar código:`, err?.message);
+        // Si no hay QR después de 3 segundos, forzar la generación
+        setTimeout(async () => {
             if (!resolved) {
-                resolved = true;
-                clearTimeout(timeoutId);
-                sock.ev.off('connection.update', handler);
-                reject(err);
+                console.log(`🔄 [${commerceId}] Forzando generación de QR...`);
+                // El QR se genera automáticamente con el evento connection.update
+                // No necesitamos hacer nada adicional
             }
-        }
+        }, 3000);
     });
 }
 
@@ -357,8 +354,16 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
     sock.ev.on('connection.update', async (update: any) => {
         const { connection, lastDisconnect } = update;
 
-        if (update.pairingCode) pairingCodes.set(commerceId, update.pairingCode);
-        if (update.qr && !pairingCodes.has(commerceId)) pairingCodes.set(commerceId, update.qr);
+        // Guardar QR si viene en el evento
+        if (update.qr) {
+            console.log(`📱 [${commerceId}] QR capturado en evento connection.update`);
+            pairingCodes.set(commerceId, update.qr);
+        }
+        
+        if (update.pairingCode) {
+            console.log(`🔢 [${commerceId}] Código de emparejamiento recibido (ignorado, usando QR): ${update.pairingCode}`);
+            // No guardamos pairingCode, preferimos QR
+        }
 
         if (connection === 'close') {
             const error = lastDisconnect?.error;
@@ -378,7 +383,10 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
             }
         } else if (connection === 'open') {
             console.log(`🟢 [${commerceId}] ¡Conexión establecida con éxito en WhatsApp!`);
-            if (sock.user) pairingCodes.delete(commerceId);
+            if (sock.user) {
+                console.log(`👤 [${commerceId}] Usuario autenticado: ${sock.user.id}`);
+                pairingCodes.delete(commerceId);
+            }
         }
     });
 
@@ -466,10 +474,8 @@ export function getSessionStatus(commerceId: string): {
 
 export function detectCodeType(code: string): 'pairing' | 'qr' | 'unknown' {
     if (!code) return 'unknown';
-    if (code.startsWith('https://wa.me/settings/linked_devices') ||
-        code.includes('wa.me') ||
-        code.length > 500) return 'pairing';
-    if (code.length < 500 && !code.startsWith('http')) return 'qr';
+    if (code.startsWith('https://wa.me/') || code.includes('wa.me') || code.length > 500) return 'qr';
+    if (code.length < 500 && !code.startsWith('http')) return 'pairing';
     return 'unknown';
 }
 
@@ -491,10 +497,13 @@ export function getFormattedCode(commerceId: string): string | null {
     const code = pairingCodes.get(commerceId);
     if (!code) return null;
     const type = detectCodeType(code);
-    if (type === 'pairing') return formatPairingCode(code);
+    if (type === 'qr') return code;
     return code;
 }
 
 export async function forceReconnect(commerceId: string, phoneNumber: string): Promise<string> {
     return await startWhatsAppBotForCommerce(commerceId, phoneNumber, true);
 }
+
+// Exportar cleanupSession para que pueda ser usado desde index.ts
+export { cleanupSession };

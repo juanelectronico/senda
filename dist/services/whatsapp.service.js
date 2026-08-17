@@ -4,45 +4,10 @@ import * as https from 'https';
 import * as path from 'path';
 import * as fs from 'fs';
 import 'dotenv/config';
-import { Firestore } from '@google-cloud/firestore';
 // ============================================
-// 0. INICIALIZAR FIRESTORE
-// ============================================
-let firestore = null;
-try {
-    firestore = new Firestore({
-        projectId: process.env.GOOGLE_CLOUD_PROJECT || 'project-9a1eb3ec-f78b-469d-bda',
-        keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS || undefined,
-    });
-    console.log('✅ Firestore inicializado para autenticación de WhatsApp');
-}
-catch (error) {
-    console.warn('⚠️ Firestore no disponible, usando almacenamiento local temporal');
-}
-// ============================================
-// 0b. FUNCIONES DE AUTENTICACIÓN HÍBRIDAS (FIRESTORE / LOCAL FOLDER)
+// 0. GESTIÓN DE AUTENTICACIÓN LOCAL (BAILEYS)
 // ============================================
 async function getAuthState(commerceId) {
-    if (firestore) {
-        try {
-            const docRef = firestore.collection('whatsapp_auth').doc(commerceId);
-            const doc = await docRef.get();
-            const creds = doc.exists ? doc.data() : null;
-            const saveCreds = async (newCreds) => {
-                try {
-                    await docRef.set(newCreds, { merge: true });
-                }
-                catch (error) {
-                    console.error(`❌ [${commerceId}] Error guardando credenciales en Firestore:`, error);
-                }
-            };
-            return { state: { creds, saveCreds }, saveCreds };
-        }
-        catch (err) {
-            console.warn(`⚠️ [${commerceId}] Falló Firestore (${err.message}). Cambiando a almacenamiento local.`);
-        }
-    }
-    // Fallback seguro usando archivos temporales locales para evitar que Baileys falle
     const authFolder = path.join(process.cwd(), '.sessions', commerceId);
     if (!fs.existsSync(authFolder)) {
         fs.mkdirSync(authFolder, { recursive: true });
@@ -51,7 +16,7 @@ async function getAuthState(commerceId) {
     return { state, saveCreds };
 }
 // ============================================
-// 0c. UTILIDAD: Formatear número de teléfono
+// 0b. UTILIDAD: Formatear número de teléfono
 // ============================================
 function formatPhoneNumber(raw) {
     let clean = raw.replace(/\D/g, '');
@@ -77,12 +42,11 @@ const CONFIG = {
     PAIRING_DELAY_MS: 5000,
     RECONNECT_DELAY_MS: 5000,
     SESSION_CLEANUP_DELAY_MS: 2000,
-    MAX_PAIRING_ATTEMPTS: 3,
     CONNECTION_TIMEOUT_MS: 60000,
 };
 const geminiApiKey = process.env.GEMINI_API_KEY;
 // ============================================
-// 4. FUNCIÓN GEMINI
+// 4. FUNCIÓN GEMINI (HTTP Nativo sin SDKs pesadas)
 // ============================================
 async function callGemini(prompt) {
     return new Promise((resolve, reject) => {
@@ -147,25 +111,27 @@ export async function startWhatsAppBotForCommerce(commerceId, phoneNumber, force
         return await pairingLocks.get(lockKey);
     }
     console.log(`🔒 [${commerceId}] Adquiriendo lock para emparejamiento...`);
-    const pairingPromise = performPairingWithLock(commerceId, cleanPhone, true)
+    const pairingPromise = performPairingWithLock(commerceId, cleanPhone, forceNew)
         .finally(() => {
         pairingLocks.delete(lockKey);
         console.log(`🔓 [${commerceId}] Lock liberado`);
     });
     pairingLocks.set(lockKey, pairingPromise);
-    const qrCode = await pairingPromise;
-    if (qrCode) {
-        pairingCodes.set(commerceId, qrCode);
-        console.log(`📱 [${commerceId}] QR guardado en pairingCodes`);
+    const code = await pairingPromise;
+    if (code) {
+        pairingCodes.set(commerceId, code);
+        console.log(`📱 [${commerceId}] Código guardado en pairingCodes`);
     }
-    return qrCode;
+    return code;
 }
 // ============================================
 // 6. PERFORM PAIRING
 // ============================================
 async function performPairingWithLock(commerceId, cleanPhone, forceNew) {
     console.log(`🚀 [${commerceId}] Iniciando proceso de emparejamiento...`);
-    await cleanupSession(commerceId, forceNew);
+    if (forceNew) {
+        await cleanupSession(commerceId, true);
+    }
     try {
         const { state, saveCreds } = await getAuthState(commerceId);
         const sock = await createSocketWithRetry(commerceId, cleanPhone, state, saveCreds);
@@ -189,7 +155,7 @@ async function performPairingWithLock(commerceId, cleanPhone, forceNew) {
             console.log(`✅ [${commerceId}] Sesión ya autenticada, no se necesita código`);
         }
         else {
-            console.log(`✅ [${commerceId}] Código generado exitosamente`);
+            console.log(`✅ [${commerceId}] Código generado exitosamente: ${code}`);
         }
         return code;
     }
@@ -224,8 +190,8 @@ async function createSocketWithRetry(commerceId, cleanPhone, state, saveCreds, r
                 getMessage: async () => null
             });
             sock.ev.on('creds.update', saveCreds);
-            console.log(`⏳ [${commerceId}] Esperando 8 segundos para que Baileys estabilice...`);
-            await sleep(8000);
+            console.log(`⏳ [${commerceId}] Esperando 5 segundos para estabilizar socket...`);
+            await sleep(5000);
             console.log(`✅ [${commerceId}] Socket creado exitosamente`);
             return sock;
         }
@@ -242,44 +208,42 @@ async function createSocketWithRetry(commerceId, cleanPhone, state, saveCreds, r
     throw new Error(`[${commerceId}] No se pudo crear el socket después de todos los intentos`);
 }
 // ============================================
-// 8. SOLICITAR CÓDIGO
+// 8. SOLICITAR CÓDIGO DE EMPAREJAMIENTO
 // ============================================
 async function requestPairingCodeWithRetry(sock, commerceId, cleanPhone) {
-    console.log(`🔑 [${commerceId}] Esperando código de vinculación...`);
-    return new Promise((resolve, reject) => {
+    console.log(`🔑 [${commerceId}] Solicitando código de 8 dígitos...`);
+    return new Promise(async (resolve, reject) => {
         let resolved = false;
-        let timeoutId;
-        timeoutId = setTimeout(() => {
+        // Verificamos si ya tenemos un código guardado para reutilizarlo y evitar cambios innecesarios
+        const existingCode = pairingCodes.get(commerceId);
+        if (existingCode && existingCode.length === 8) {
+            console.log(`✨ [${commerceId}] Reutilizando código activo existente: ${existingCode}`);
+            resolve(existingCode);
+            return;
+        }
+        const timeoutId = setTimeout(() => {
             if (!resolved) {
-                sock.ev.off('connection.update', handler);
-                reject(new Error(`Timeout esperando código después de ${CONFIG.CONNECTION_TIMEOUT_MS}ms`));
+                resolved = true;
+                reject(new Error(`Timeout: No se recibió código para ${commerceId}`));
             }
-        }, CONFIG.CONNECTION_TIMEOUT_MS);
+        }, 45000);
         const handler = (update) => {
-            if (sock.user) {
-                if (!resolved) {
+            if (sock.user && !resolved) {
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                resolve('ALREADY_AUTHENTICATED');
+                return;
+            }
+            if (update.connection === 'close' && !resolved) {
+                const error = update.lastDisconnect?.error;
+                const statusCode = error?.output?.statusCode;
+                if (statusCode === DisconnectReason.loggedOut || statusCode === 401) {
                     resolved = true;
                     clearTimeout(timeoutId);
                     sock.ev.off('connection.update', handler);
-                    resolve('ALREADY_AUTHENTICATED');
+                    reject(new Error(`Conexión cerrada por autenticación inválida (${statusCode})`));
                 }
-                return;
-            }
-            const code = update.pairingCode || update.qr;
-            if (code && !resolved) {
-                resolved = true;
-                clearTimeout(timeoutId);
-                sock.ev.off('connection.update', handler);
-                pairingCodes.set(commerceId, code);
-                resolve(code);
-            }
-            if (update.connection === 'close' && !resolved) {
-                resolved = true;
-                clearTimeout(timeoutId);
-                sock.ev.off('connection.update', handler);
-                const error = update.lastDisconnect?.error;
-                const statusCode = error?.output?.statusCode;
-                reject(new Error(`Conexión cerrada: ${error?.message || 'Error desconocido'} (${statusCode})`));
             }
         };
         sock.ev.on('connection.update', handler);
@@ -288,11 +252,37 @@ async function requestPairingCodeWithRetry(sock, commerceId, cleanPhone) {
             clearTimeout(timeoutId);
             sock.ev.off('connection.update', handler);
             resolve('ALREADY_AUTHENTICATED');
+            return;
         }
-        if (!resolved && !sock.user) {
-            sock.requestPairingCode(cleanPhone).catch((err) => {
-                console.log(`⚠️ [${commerceId}] Pairing code no disponible, esperando QR...`, err.message);
-            });
+        try {
+            await sleep(4000);
+            if (!resolved && !sock.authState.creds.registered) {
+                console.log(`📞 [${commerceId}] Ejecutando petición requestPairingCode...`);
+                const code = await sock.requestPairingCode(cleanPhone.replace(/\D/g, ''));
+                if (!resolved) {
+                    resolved = true;
+                    clearTimeout(timeoutId);
+                    sock.ev.off('connection.update', handler);
+                    pairingCodes.set(commerceId, code);
+                    console.log(`✅ [${commerceId}] Código definitivo generado: ${code}`);
+                    resolve(code);
+                }
+            }
+            else {
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                resolve('ALREADY_AUTHENTICATED');
+            }
+        }
+        catch (err) {
+            console.error(`❌ [${commerceId}] Error al generar código:`, err?.message);
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timeoutId);
+                sock.ev.off('connection.update', handler);
+                reject(err);
+            }
         }
     });
 }
@@ -309,6 +299,7 @@ function setupEventListeners(sock, commerceId, cleanPhone) {
         if (connection === 'close') {
             const error = lastDisconnect?.error;
             const statusCode = error?.output?.statusCode;
+            console.log(`🔌 [${commerceId}] Conexión cerrada. Código de estado: ${statusCode}`);
             if (statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 428) {
                 pairingCodes.delete(commerceId);
                 await cleanupSession(commerceId, true);
@@ -325,6 +316,7 @@ function setupEventListeners(sock, commerceId, cleanPhone) {
             }
         }
         else if (connection === 'open') {
+            console.log(`🟢 [${commerceId}] ¡Conexión establecida con éxito en WhatsApp!`);
             if (sock.user)
                 pairingCodes.delete(commerceId);
         }
@@ -334,17 +326,15 @@ function setupEventListeners(sock, commerceId, cleanPhone) {
             const m = messages[0];
             if (!m.message || m.key.fromMe)
                 return;
-            const messageType = Object.keys(m.message)[0];
+            const msgContent = m.message.ephemeralMessage?.message || m.message;
+            const textMessage = msgContent.conversation || msgContent.extendedTextMessage?.text;
             const sender = m.key.remoteJid;
-            let textMessage = '';
-            if (messageType === 'conversation')
-                textMessage = m.message.conversation;
-            else if (messageType === 'extendedTextMessage')
-                textMessage = m.message.extendedTextMessage.text;
             if (textMessage && sender) {
+                console.log(`💬 [${commerceId}] Mensaje recibido de ${sender}: "${textMessage}"`);
                 const prompt = `Eres Senda Bot, un asistente virtual experto en facturación electrónica en México (SAT) y alta de comercios. Responde de forma amable, clara y concisa a la siguiente duda del usuario: "${textMessage}"`;
                 const respuestaIA = await callGemini(prompt);
                 await sock.sendMessage(sender, { text: respuestaIA });
+                console.log(`📤 [${commerceId}] Respuesta enviada con éxito`);
             }
         }
         catch (error) {
@@ -369,6 +359,18 @@ async function cleanupSession(commerceId, deleteState = true) {
     }
     activeSessions.delete(commerceId);
     pairingCodes.delete(commerceId);
+    if (deleteState) {
+        const authFolder = path.join(process.cwd(), '.sessions', commerceId);
+        if (fs.existsSync(authFolder)) {
+            try {
+                fs.rmSync(authFolder, { recursive: true, force: true });
+                console.log(`🗑️ [${commerceId}] Carpeta de sesión eliminada`);
+            }
+            catch (e) {
+                console.error(`⚠️ [${commerceId}] No se pudo borrar la carpeta de sesión:`, e);
+            }
+        }
+    }
     await sleep(CONFIG.SESSION_CLEANUP_DELAY_MS);
 }
 // ============================================
