@@ -109,7 +109,13 @@ app.post('/api/commerce/register', registerLimiter, async (req: Request, res: Re
         const preference = new Preference(mercadopagoClient as any);
         const result = await preference.create({
             body: {
-                items: [{ title: 'Registro Senda', quantity: 1, unit_price: 50.00, currency_id: 'MXN' }],
+                items: [{ 
+                    id: 'senda_register', 
+                    title: 'Registro Senda', 
+                    quantity: 1, 
+                    unit_price: 50.00, 
+                    currency_id: 'MXN' 
+                }],
                 external_reference: data.id.toString(),
                 back_urls: { success: `${baseUrl}/payment/success?id=${data.id}` }
             }
