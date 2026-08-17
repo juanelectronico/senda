@@ -15,7 +15,7 @@ const router = Router();
  */
 router.get('/get-qr', async (req: Request, res: Response) => {
     try {
-        const { id } = req.query;
+        const { id, phone } = req.query;
 
         if (!id || typeof id !== 'string') {
             return res.status(400).json({
@@ -24,18 +24,31 @@ router.get('/get-qr', async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`📡 [${id}] Consultando QR...`);
+        console.log(`📡 [${id}] Consultando estado de QR...`);
 
         const status = getSessionStatus(id);
         const codeInfo = getCodeWithType(id);
 
-        // Si no existe sesión en memoria
+        // Si no existe sesión en memoria y tenemos el teléfono opcional, podemos auto-iniciar la conexión
         if (!status.exists && !codeInfo.code) {
-            console.log(`⚠️ [${id}] Sesión no encontrada en memoria.`);
+            if (phone && typeof phone === 'string') {
+                console.log(`🔄 [${id}] Sesión ausente en /get-qr, auto-iniciando con teléfono: ${phone}`);
+                // Disparamos en segundo plano para no bloquear la respuesta HTTP
+                startWhatsAppBotForCommerce(id, phone).catch(err => 
+                    console.error(`❌ [${id}] Error en auto-inicio desde get-qr:`, err.message)
+                );
+                return res.json({
+                    success: true,
+                    status: 'pairing',
+                    message: 'Iniciando conexión de WhatsApp automáticamente...'
+                });
+            }
+
+            console.log(`⚠️ [${id}] Sesión no encontrada en memoria y sin teléfono provisto.`);
             return res.json({
                 success: true,
                 status: 'waiting',
-                message: 'Esperando inicialización...'
+                message: 'Esperando inicialización de conexión...'
             });
         }
 
@@ -109,7 +122,7 @@ router.post('/connect', async (req: Request, res: Response) => {
             });
         }
 
-        console.log(`📱 [${id}] Iniciando conexión con teléfono: ${phone}`);
+        console.log(`📱 [${id}] Iniciando conexión vía POST con teléfono: ${phone}`);
 
         const result = await startWhatsAppBotForCommerce(id, phone);
 
