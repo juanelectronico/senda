@@ -6,6 +6,7 @@ import {
     getSessionStatus,
     startWhatsAppBotForCommerce 
 } from '../services/whatsapp.service';
+import { supabase } from '../services/supabase'; // Asegúrate de tener la importación de supabase
 
 const router = Router();
 
@@ -17,7 +18,6 @@ router.get('/get-qr', async (req: Request, res: Response) => {
     try {
         const { id } = req.query;
 
-        // Validar que venga el ID
         if (!id || typeof id !== 'string') {
             return res.status(400).json({
                 success: false,
@@ -27,11 +27,33 @@ router.get('/get-qr', async (req: Request, res: Response) => {
 
         console.log(`📡 [${id}] Consultando QR...`);
 
-        // Obtener el estado de la sesión
-        const status = getSessionStatus(id);
-        
-        // Obtener el código con tipo
-        const codeInfo = getCodeWithType(id);
+        let status = getSessionStatus(id);
+        let codeInfo = getCodeWithType(id);
+
+        // Si no existe sesión en memoria (ej. Render reinició el servidor), 
+        // rescatamos el teléfono de Supabase y arrancamos el bot automáticamente.
+        if (!status.exists && !codeInfo.code) {
+            console.log(`⚠️ [${id}] Sesión no encontrada en memoria. Buscando comercio en Supabase...`);
+            const { data: commerce, error } = await supabase
+                .from('commerce')
+                .select('phone')
+                .eq('id', id)
+                .single();
+
+            if (commerce?.phone) {
+                console.log(`🚀 [${id}] Teléfono encontrado (${commerce.phone}). Auto-iniciando bot...`);
+                // Llamamos a start en segundo plano o esperamos a que genere el código
+                startWhatsAppBotForCommerce(id, commerce.phone, false).catch(err => {
+                    console.error(`❌ [${id}] Error auto-iniciando en get-qr:`, err);
+                });
+                
+                return res.json({
+                    success: true,
+                    status: 'pairing',
+                    message: 'Iniciando conexión de WhatsApp...'
+                });
+            }
+        }
 
         // Si ya está conectado
         if (status.exists && !status.isPairing && !codeInfo.code) {
@@ -44,7 +66,6 @@ router.get('/get-qr', async (req: Request, res: Response) => {
 
         // Si tenemos código QR o pairing code
         if (codeInfo.code) {
-            // Formatear el código si es pairing
             const formattedCode = codeInfo.type === 'pairing' 
                 ? getFormattedCode(id) 
                 : codeInfo.code;
@@ -52,7 +73,7 @@ router.get('/get-qr', async (req: Request, res: Response) => {
             return res.json({
                 success: true,
                 qr: formattedCode,
-                type: codeInfo.type, // 'pairing' o 'qr'
+                type: codeInfo.type,
                 status: 'pending',
                 isPairing: codeInfo.type === 'pairing'
             });
@@ -67,7 +88,6 @@ router.get('/get-qr', async (req: Request, res: Response) => {
             });
         }
 
-        // Sin QR aún
         return res.json({
             success: true,
             status: 'waiting',
@@ -85,29 +105,20 @@ router.get('/get-qr', async (req: Request, res: Response) => {
 
 /**
  * POST /api/whatsapp/connect
- * Inicia la conexión de WhatsApp para un comercio
  */
 router.post('/connect', async (req: Request, res: Response) => {
     try {
         const { id, phone } = req.body;
 
         if (!id || typeof id !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'ID de comercio es requerido'
-            });
+            return res.status(400).json({ success: false, error: 'ID de comercio es requerido' });
         }
 
         if (!phone || typeof phone !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'Número de teléfono es requerido'
-            });
+            return res.status(400).json({ success: false, error: 'Número de teléfono es requerido' });
         }
 
         console.log(`📱 [${id}] Iniciando conexión con teléfono: ${phone}`);
-
-        // Iniciar el proceso de conexión
         const result = await startWhatsAppBotForCommerce(id, phone);
 
         return res.json({
@@ -128,17 +139,13 @@ router.post('/connect', async (req: Request, res: Response) => {
 
 /**
  * GET /api/whatsapp/status
- * Obtiene el estado actual de la conexión
  */
 router.get('/status', async (req: Request, res: Response) => {
     try {
         const { id } = req.query;
 
         if (!id || typeof id !== 'string') {
-            return res.status(400).json({
-                success: false,
-                error: 'ID de comercio es requerido'
-            });
+            return res.status(400).json({ success: false, error: 'ID de comercio es requerido' });
         }
 
         const status = getSessionStatus(id);
@@ -158,10 +165,7 @@ router.get('/status', async (req: Request, res: Response) => {
 
     } catch (error) {
         console.error('❌ Error en status:', error);
-        return res.status(500).json({
-            success: false,
-            error: 'Error interno del servidor'
-        });
+        return res.status(500).json({ success: false, error: 'Error interno del servidor' });
     }
 });
 

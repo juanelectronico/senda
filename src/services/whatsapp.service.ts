@@ -353,18 +353,23 @@ function setupEventListeners(sock: any, commerceId: string, cleanPhone: string):
     });
 
     sock.ev.on('messages.upsert', async ({ messages }: any) => {
+        console.log('📥 [WHATSAPP] ¡Mensaje recibido en bruto!', JSON.stringify(messages[0], null, 2));
         try {
             const m = messages[0];
             if (!m.message || m.key.fromMe) return;
-            const messageType = Object.keys(m.message)[0];
+
+            const msgContent = m.message.ephemeralMessage?.message || m.message;
+            const textMessage = msgContent.conversation || msgContent.extendedTextMessage?.text;
             const sender = m.key.remoteJid;
-            let textMessage = '';
-            if (messageType === 'conversation') textMessage = m.message.conversation;
-            else if (messageType === 'extendedTextMessage') textMessage = m.message.extendedTextMessage.text;
+
             if (textMessage && sender) {
+                console.log(`💬 [${commerceId}] Mensaje de texto válido de ${sender}: "${textMessage}"`);
                 const prompt = `Eres Senda Bot, un asistente virtual experto en facturación electrónica en México (SAT) y alta de comercios. Responde de forma amable, clara y concisa a la siguiente duda del usuario: "${textMessage}"`;
                 const respuestaIA = await callGemini(prompt);
                 await sock.sendMessage(sender, { text: respuestaIA });
+                console.log(`📤 [${commerceId}] Respuesta enviada con éxito`);
+            } else {
+                console.log(`⚠️ [${commerceId}] El mensaje llegó pero no es texto plano (tipo ignorado).`);
             }
         } catch (error) {
             console.error(`❌ [${commerceId}] Error procesando mensaje:`, error);
