@@ -278,20 +278,28 @@ app.get('/payment/success', async (req, res) => {
                 .badge { display: inline-block; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 500; margin-top: 8px; }
                 .badge.loading { background: #1e3a8a; color: #93c5fd; }
                 .badge.ready { background: #064e3b; color: #6ee7b7; }
+                .badge.pairing { background: #78350f; color: #fcd34d; }
                 .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid #334155; border-radius: 50%; border-top-color: #38bdf8; animation: spin 0.8s linear infinite; margin-bottom: 12px; }
                 @keyframes spin { to { transform: rotate(360deg); } }
                 .payment-badge { background: #064e3b; color: #6ee7b7; padding: 8px 16px; border-radius: 8px; text-align: center; margin-bottom: 16px; font-weight: 500; }
+                .code-container { background: #0f172a; padding: 20px; border-radius: 12px; margin: 10px 0; text-align: center; border: 2px solid #38bdf8; }
+                .code-digits { font-size: 42px; font-weight: 700; letter-spacing: 6px; color: #38bdf8; font-family: monospace; }
+                .copy-btn { margin-top: 8px; padding: 6px 16px; background: #334155; border: none; border-radius: 6px; color: #f8fafc; cursor: pointer; font-size: 12px; transition: background 0.2s; }
+                .copy-btn:hover { background: #475569; }
+                .code-instructions { color: #94a3b8; font-size: 14px; margin-bottom: 8px; }
+                .code-instructions strong { color: #f8fafc; }
             </style>
         </head>
         <body>
         <div class="card">
             <h1>📱 Vincula tu WhatsApp</h1>
-            <p class="subtitle">Escanea el código QR con la app de WhatsApp</p>
+            <p class="subtitle">Ingresa el código de 8 dígitos en WhatsApp</p>
             <div class="payment-badge">✅ Pago confirmado. ¡Ya puedes conectar WhatsApp!</div>
             <div class="qr-container" id="qrContainer">
                 <div id="qrContent">
                     <div class="spinner"></div>
-                    <p style="text-align: center; color: #94a3b8;">Generando código QR...</p>
+                    <p style="text-align: center; color: #94a3b8;">Generando código de vinculación...</p>
+                    <p style="text-align: center; color: #64748b; font-size: 13px; margin-top: 8px;">⏳ Puede tomar hasta 40 segundos</p>
                 </div>
                 <span class="badge loading" id="statusBadge">⏳ Conectando...</span>
             </div>
@@ -300,30 +308,79 @@ app.get('/payment/success', async (req, res) => {
                 <a href="/" class="btn btn-secondary">Ir al inicio</a>
             </div>
         </div>
-        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
         <script>
             const COMERCIO_ID = new URLSearchParams(window.location.search).get('id');
+            
+            function esCodigo8Digitos(texto) {
+                return /^\\d{8}$/.test(texto);
+            }
+
             async function checkQR() {
                 try {
                     const res = await fetch(\`/api/whatsapp/get-qr?id=\${COMERCIO_ID}\`);
                     const data = await res.json();
+                    
+                    const content = document.getElementById('qrContent');
+                    const badge = document.getElementById('statusBadge');
+                    
                     if (data.success && data.qr) {
-                        const content = document.getElementById('qrContent');
-                        const badge = document.getElementById('statusBadge');
-                        content.innerHTML = '<canvas id="qrCanvas"></canvas>';
-                        QRCode.toCanvas(document.getElementById('qrCanvas'), data.qr, { width: 220 }, function (error) {});
-                        badge.textContent = '✅ Escanea este QR';
-                        badge.className = 'badge ready';
+                        if (esCodigo8Digitos(data.qr)) {
+                            content.innerHTML = \`
+                                <div style="text-align: center; padding: 10px; width: 100%;">
+                                    <p class="code-instructions">
+                                        📱 Abre WhatsApp y ve a:<br>
+                                        <strong>Ajustes → Dispositivos vinculados → Vincular un dispositivo</strong>
+                                    </p>
+                                    <div class="code-container">
+                                        <span class="code-digits">\${data.qr}</span>
+                                    </div>
+                                    <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">
+                                        ⏰ Código válido por 2 minutos
+                                    </p>
+                                    <button class="copy-btn" onclick="navigator.clipboard.writeText('\${data.qr}')">
+                                        📋 Copiar código
+                                    </button>
+                                </div>
+                            \`;
+                            badge.textContent = '🔢 Código de 8 dígitos listo';
+                            badge.className = 'badge ready';
+                        } else {
+                            content.innerHTML = '<canvas id="qrCanvas"></canvas>';
+                            QRCode.toCanvas(document.getElementById('qrCanvas'), data.qr, { width: 220 }, function (error) {});
+                            badge.textContent = '✅ Escanea este QR';
+                            badge.className = 'badge ready';
+                        }
                     } else if (data.status === 'connected') {
-                        document.getElementById('qrContent').innerHTML = '<p style="color: #6ee7b7; font-weight: bold;">¡Vinculado con éxito!</p>';
-                        document.getElementById('statusBadge').textContent = '✅ Conectado';
-                        document.getElementById('statusBadge').className = 'badge ready';
+                        content.innerHTML = '<p style="color: #6ee7b7; font-weight: bold; font-size: 18px;">✅ ¡WhatsApp vinculado con éxito!</p>';
+                        badge.textContent = '✅ Conectado';
+                        badge.className = 'badge ready';
+                    } else if (data.status === 'pairing') {
+                        content.innerHTML = \`
+                            <div class="spinner"></div>
+                            <p style="text-align: center; color: #fcd34d;">⌛ Código generado, esperando confirmación...</p>
+                            <p style="text-align: center; color: #94a3b8; font-size: 13px; margin-top: 8px;">Ingresa el código en WhatsApp para vincular</p>
+                        \`;
+                        badge.textContent = '⏳ Esperando vinculación...';
+                        badge.className = 'badge pairing';
+                    } else {
+                        content.innerHTML = \`
+                            <div class="spinner"></div>
+                            <p style="text-align: center; color: #94a3b8;">Generando código de vinculación...</p>
+                            <p style="text-align: center; color: #64748b; font-size: 13px; margin-top: 8px;">⏳ Puede tomar hasta 40 segundos</p>
+                        \`;
+                        badge.textContent = '⏳ Conectando...';
+                        badge.className = 'badge loading';
                     }
-                } catch (e) {}
+                } catch (e) {
+                    console.error('Error:', e);
+                }
             }
-            setInterval(checkQR, 3000);
+            
+            checkQR();
+            setInterval(checkQR, 2000);
             document.getElementById('refreshBtn').addEventListener('click', () => window.location.reload());
         </script>
+        <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
         </body>
         </html>
     `);
